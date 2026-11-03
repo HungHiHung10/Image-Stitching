@@ -1,348 +1,499 @@
-# KẾ HOẠCH PHÂN CÔNG NHIỆM VỤ ĐỒ ÁN GIỮA KỲ (MIDTERM ASSIGNMENT)
-**Môn học:** CSC14120 – Lập trình song song (Parallel Programming)  
-**Đề tài:** Panorama Image Stitching (Ghép ảnh toàn cảnh)  
-**Trọng số:** 10% tổng điểm đồ án | **Hạn nộp:** 23:59 Cuối tuần thứ 7  
-**Repository:** [https://github.com/HungHiHung10/Midterm-Parallel-Programming.git](https://github.com/HungHiHung10/Midterm-Parallel-Programming.git)
+# Kế hoạch Finalterm — Nhóm 22: Panorama Image Stitching
 
-### Thông tin nhóm (Mục 3.1 — Bắt buộc)
+Môn học: CSC14120 — Lập trình song song.
 
-| Vai trò | Họ tên | MSSV |
-| :--- | :--- | :--- |
-| Thành viên 1 (Back-end & Algorithmic Core Lead) | `[Điền tên]` | `[Điền MSSV]` |
-| Thành viên 2 (Front-end & Computer Vision Core Lead) | `[Điền tên]` | `[Điền MSSV]` |
-| Thành viên 3 (System, Data, Profiling & Notebook Lead) | `[Điền tên]` | `[Điền MSSV]` |
+Cập nhật: 03/11/2026.
 
----
+Mục đích: kế thừa Midterm V0, triển khai CUDA V1–V3 và hoàn thiện bài nộp cuối kỳ.
 
-## 1. MỤC TIÊU VÀ SẢN PHẨM BÀN GIAO (DELIVERABLES)
+Tài liệu này thay thế kế hoạch phân công Midterm cũ. Đây là **kế hoạch triển khai**, không phải xác nhận rằng V1, V2, V3 đã được thực hiện hoặc đạt speedup. Không ghi thời hạn hoặc trọng số Finalterm khi chưa có thông báo được xác nhận.
 
-Mục tiêu của bài nộp Giữa kỳ là xây dựng thành công **phiên bản tuần tự (V0)** làm mốc chuẩn (baseline), đo lường thời gian thực thi chi tiết của 6 giai đoạn trên 3 độ phân giải khác nhau, kiểm chứng tính đúng đắn trên tập ảnh chuẩn, và lập kế hoạch song song hóa cụ thể trên GPU (CUDA Plan) cho các phiên bản tiếp theo.
+## 1. Đọc nhanh: mỗi người làm gì?
 
-### Sản phẩm nộp bài theo quy định:
-Một tệp nén duy nhất: **`GroupXX_Midterm.zip`** gồm:
-1. **`GroupXX_Midterm.ipynb`**: Báo cáo dạng Jupyter Notebook (Google Colab), đã lưu toàn bộ output của các ô thực thi.
-2. **`src/`**: Toàn bộ mã nguồn C/C++ cần thiết để biên dịch chương trình:
-   * `common.h`, `cuda_utils.cuh`, `versions.h`, `main.cu`, `stb_impl.cpp`
-   * `v0_<name>.cpp` (hoặc các file module tuần tự đi kèm)
-   * Header chú thích: Đầu mỗi file phải ghi rõ tên tác giả và các nguồn mã mở được tham khảo/chuyển thể.
-3. **Dataset (Google Drive link)**: Đường dẫn mở đặt trong notebook dẫn tới thư mục chứa ảnh thô và 24 ảnh đã crop/resize + synthetic pair.
+| Thành viên | MSSV | Vai trò Midterm | Phiên bản chịu trách nhiệm Finalterm |
+| --- | --- | --- | --- |
+| Trần Nguyễn Minh Quân | 23120342 | Back-end, stages 4–6 | **V1 — Basic CUDA**: tích hợp pipeline GPU đầy đủ |
+| Vũ Trần Phúc | 23120333 | Front-end, stages 1–3 | **V2 — Optimized CUDA**: dự kiến tối ưu matching bằng shared memory |
+| Nguyễn Hữu Khánh Hưng | 23120271 | System, data, profiling, notebook | **V3 — Optimized CUDA**: dự kiến chạy frontend hai ảnh đồng thời bằng CUDA streams |
 
----
+“Chịu trách nhiệm phiên bản” nghĩa là dẫn dắt thiết kế, tích hợp, kiểm tra, đo đạc và viết phần báo cáo của phiên bản đó. Mỗi người vẫn hỗ trợ các phiên bản khác theo chuyên môn; không chờ người trước hoàn thành rồi mới bắt đầu làm.
 
-### 1.1 SƠ ĐỒ CẤU TRÚC CÂY TỆP TIN VÀ PHÂN CÔNG THÀNH VIÊN (FILE TREE & DELIVERABLES MATRIX)
+Ngay khi bắt đầu: Quân viết CUDA backend; Phúc viết CUDA frontend; Hưng làm khung chạy, đo đạc và kiểm tra. Sau khi tích hợp thành V1, Phúc dẫn dắt V2 rồi Hưng dẫn dắt V3.
 
-Dưới đây là sơ đồ trực quan hóa toàn bộ hệ thống tệp tin **bắt buộc phải có** theo quy định trong đề bài Midterm (`CSC14120_2026_Final Project_MidTerm.pdf`), kèm theo ký hiệu phân công cụ thể cho từng thành viên:
-* `[TV1]`: **Thành viên 1** (Back-end & Algorithmic Core Lead)
-* `[TV2]`: **Thành viên 2** (Front-end & Computer Vision Core Lead)
-* `[TV3]`: **Thành viên 3** (System, Data, Profiling & Notebook Lead)
-* `[TV3*]`: Thành viên 3 chủ trì, phối hợp và thống nhất với cả nhóm
+## 2. Căn cứ và yêu cầu bắt buộc
 
-```
-GroupXX_Midterm.zip (Gói nộp bài nén duy nhất theo quy định)
-│
-├── GroupXX_Midterm.ipynb                     # [TV3*] Báo cáo Jupyter Notebook (Lưu đủ outputs, chạy Google Colab)
-│   │
-│   ├── [Ô 1] Setup Cell                      # [TV3] Mount Drive, copy src/ vào /content/, biên dịch binary CLI
-│   │
-│   ├── 3.1 Team Information & Work Plan      # [TV3] Bảng Họ tên, MSSV, vai trò & lộ trình từ V0 đến Cuối kỳ
-│   │
-│   ├── 3.2 Problem Understanding             # [TV2: Stage 1-3 | TV1: Stage 4-6] Thấu hiểu 6 giai đoạn ghép ảnh
-│   │
-│   ├── 3.3 Chosen Methods & Parameters       # [TV2: Stage 1-3 | TV1: Stage 4-6] Thuật toán, tham số, lý giải GPU
-│   │   ├── Stage 1: Preprocessing            # [TV2] Grayscale (Rec. 601), Gaussian Blur 5x5 (tách rời 1D)
-│   │   ├── Stage 2: Keypoint Detection       # [TV2] FAST / Harris + Non-Maximum Suppression (NMS) + Top-K
-│   │   ├── Stage 3: Feature Description      # [TV2] BRIEF 256-bit nhị phân, mẫu lấy mẫu chuẩn Gaussian
-│   │   ├── Stage 4: Feature Matching         # [TV1] Brute-Force khoảng cách Hamming + Lowe's ratio test
-│   │   ├── Stage 5: Homography Estimation    # [TV1] RANSAC 4-point DLT (Khử Gauss/SVD) + inlier refinement
-│   │   └── Stage 6: Warping & Blending       # [TV1] Inverse Warping + Bilinear Interpolation + Feathering Blending
-│   │
-│   ├── 3.4 Sequential Version (V0)           # [TV3] Mô tả kiến trúc V0, cách các stage kết nối, trích dẫn nguồn mã mở
-│   │
-│   ├── 3.5 V0 Results and Profiling          # [TV3] Toàn bộ kết quả thực nghiệm và số liệu đo đạc
-│   │   ├── Correctness Evaluation            # [TV3] Đo Homography error trên cặp synthetic so với ground-truth
-│   │   ├── Panoramas Visuals (4 ảnh)         # [TV3*] Hiển thị 4 ảnh panorama kết quả (mỗi site ít nhất 1 ảnh)
-│   │   ├── Per-Stage Timing Table            # [TV3] Bảng thời gian 6 giai đoạn ở 3 độ phân giải (Small, Med, Large)
-│   │   ├── Performance Scaling Chart         # [TV3] Biểu đồ trực quan hóa thời gian thay đổi theo độ phân giải
-│   │   ├── Hot Stages Identification         # [TV3] Xác định giai đoạn chiếm nhiều thời gian nhất (thắt nút cổ chai)
-│   │   └── Amdahl Speedup Estimate           # [TV3] Tính toán tỷ lệ p và giới hạn tăng tốc lý thuyết 1/(1-p)
-│   │
-│   ├── 3.6 Dataset Documentation             # [TV3] Bảng mô tả 4 registered sites (indoor, outdoor, custom, challenge)
-│   │   ├── Site 1 (Indoor)                   # [TV3] Tên địa điểm, đặc điểm khung cảnh, lý do chọn, ánh sáng
-│   │   ├── Site 2 (Outdoor)                  # [TV3] Tên địa điểm, đặc điểm khung cảnh, lý do chọn, ánh sáng
-│   │   ├── Site 3 (Custom)                   # [TV3] Tên địa điểm, đặc điểm khung cảnh, lý do chọn, ánh sáng
-│   │   ├── Site 4 (Challenging)              # [TV3] Thử thách: bề mặt lặp lại / thiếu chi tiết / ánh sáng yếu
-│   │   └── Google Drive Public Link          # [TV3] Link công khai chứa raw photos + prepared dataset (24 ảnh)
-│   │
-│   └── 3.7 GPU Acceleration Plan             # [TV2: Stage 1-3 | TV1: Stage 4-6] Kế hoạch song song hóa trên GPU
-│       ├── Stages selected for GPU           # [Cả nhóm] Chọn các stage tăng tốc dựa trên phân tích ở mục 3.5
-│       ├── V1 Thread Mapping                 # [TV2: Stage 1-3 | TV1: Stage 4-6] Ánh xạ luồng cụ thể (thread/warp/block)
-│       ├── V2/V3 Optimization Ideas          # [TV2: Shared Mem, Scan | TV1: Warp-shuffle, Texture, __popc]
-│       └── Technical Risks & Mitigation      # [TV2: Non-coalesced access | TV1: Warp divergence, Canvas overhead]
-│
-├── src/                                      # [Toàn nhóm] Mã nguồn C/C++/CUDA độc lập (One source of truth)
-│   ├── common.h                              # [TV3*] Struct dữ liệu dùng chung (Image, Keypoint, Match, H), Timer, Log
-│   ├── cuda_utils.cuh                        # [TV3] Tiện ích CUDA: macro CHECK_CUDA, GpuTimer cho các phiên bản tiếp theo
-│   ├── versions.h                            # [TV3] Khai báo prototypes giao diện các phiên bản (run_v0, run_v1, ...)
-│   ├── main.cu                               # [TV3] CLI Driver: phân tích argv, nạp ảnh, gọi V0, đo benchmark, lưu ảnh
-│   ├── stb_impl.cpp                          # [TV3] File triển khai nạp thư viện đọc/ghi ảnh stb_image
-│   ├── stb_image.h                           # [TV3 tích hợp] Thư viện mã mở nạp ảnh PNG/JPG/PNM
-│   ├── stb_image_write.h                     # [TV3 tích hợp] Thư viện mã mở xuất ảnh PNG/JPG/PNM
-│   │
-│   ├── v0_frontend.cpp                       # [TV2] Module C++ tuần tự thực hiện các giai đoạn 1, 2, 3
-│   │   ├── Header Chú thích                  # [TV2] Ghi rõ tên tác giả và các nguồn mã mở được tham khảo/chuyển thể
-│   │   ├── Stage 1: rgb2gray & gaussian_blur # [TV2] Chuyển đổi mức xám và lọc tách rời 1D Gauss 5x5
-│   │   ├── Stage 2: fast_detect & nms_topk   # [TV2] Nhận diện góc FAST/Harris + lọc NMS 3x3 + chọn Top-K điểm
-│   │   └── Stage 3: brief_compute_desc       # [TV2] Trích xuất vector mô tả đặc trưng nhị phân BRIEF 256-bit
-│   │
-│   ├── v0_backend.cpp                        # [TV1] Module C++ tuần tự thực hiện các giai đoạn 4, 5, 6
-│   │   ├── Header Chú thích                  # [TV1] Ghi rõ tên tác giả và các nguồn mã mở được tham khảo/chuyển thể
-│   │   ├── Stage 4: brute_force_hamming      # [TV1] So khớp đặc trưng nhị phân + Lowe's ratio test (d1/d2 < 0.75)
-│   │   ├── Stage 5: ransac_homography        # [TV1] RANSAC 4 điểm DLT (Gauss/SVD) + đếm inliers + tinh chỉnh H
-│   │   └── Stage 6: inverse_warp_blend       # [TV1] Inverse Warping + Bilinear Interpolation + Feathering Blending
-│   │
-│   └── v0_stitching.cpp                      # [TV3 tích hợp] Hàm tích hợp run_v0(...) kết nối toàn bộ 6 giai đoạn
-│
-└── dataset/ (Thư mục chuẩn bị dữ liệu — Lưu trữ trên Google Drive & Local test)
-    ├── synthetic/                            # [TV3] Bộ dữ liệu nhân tạo kiểm thử tính đúng đắn (Correctness)
-    │   ├── synthetic_left.png                # [TV3] Ảnh nhân tạo A
-    │   ├── synthetic_right.png               # [TV3] Ảnh nhân tạo B
-    │   └── H_ground_truth.txt                # [TV3] Ma trận $3\times3$ chuẩn để tính sai số Homography Error
-    │
-    ├── raw/                                  # [TV3] 8 ảnh gốc, đặt phẳng và định danh tường minh
-    │   ├── indoor_left.* / indoor_right.*
-    │   ├── outdoor_left.* / outdoor_right.*
-    │   ├── custom_left.* / custom_right.*
-    │   └── challenging_left.* / challenging_right.*
-    │
-    ├── prepared/                             # [TV3] Đúng 24 ảnh chuẩn tỷ lệ 16:9 ở 3 độ phân giải
-    │   ├── small/ (1280 x 720)               # [TV3] 4 cặp (8 ảnh) dùng đo thời gian kích thước nhỏ
-    │   ├── medium/ (1920 x 1080)             # [TV3] 4 cặp (8 ảnh) dùng đo thời gian vừa & xuất 4 panorama
-    │   └── large/ (3840 x 2160)              # [TV3] 4 cặp (8 ảnh) dùng đo thời gian kích thước lớn
-    │
-    └── outputs_v0/                           # [TV3*] 4 ảnh panorama kết quả do V0 tạo ra (đưa vào Notebook 3.5)
-        ├── panorama_site1.png                # [TV3 chạy / TV1 & TV2 code] Kết quả ghép cảnh Trong nhà
-        ├── panorama_site2.png                # [TV3 chạy / TV1 & TV2 code] Kết quả ghép cảnh Ngoài trời
-        ├── panorama_site3.png                # [TV3 chạy / TV1 & TV2 code] Kết quả ghép cảnh Tự chọn
-        └── panorama_site4.png                # [TV3 chạy / TV1 & TV2 code] Kết quả ghép cảnh Thử thách
+Nguồn chính trong repository:
+
+- [Đề Final Project bản tiếng Anh](<requirement/finalterm/CSC14120_2026_Final Project.pdf>): mục 3 về phiên bản, mục 4 về benchmark, mục 5 về sản phẩm nộp và mục 6 về trích dẫn/AI.
+- [Đề bản tiếng Việt](<requirement/finalterm/CSC14120_2026_Final Project vi.pdf>): dùng để đọc đối chiếu.
+- [Dataset requirements](<requirement/finalterm/Dataset requirements.pdf>): hướng dẫn dữ liệu đi kèm.
+
+Phân biệt hai loại thông tin trong tài liệu này: **yêu cầu của đề** là tiêu chí phải đáp ứng; **đề xuất của nhóm** là lựa chọn kỹ thuật có thể điều chỉnh sau profiling.
+
+### 2.1. Bốn phiên bản tối thiểu
+
+| Phiên bản | Yêu cầu của đề | Cách hiểu dễ tiếp cận |
+| --- | --- | --- |
+| V0 | C/C++ đơn luồng, tuần tự | Bản chuẩn để đối chiếu kết quả và thời gian |
+| V1 | Mọi stage chạy trên GPU bằng CUDA cơ bản | Chuyển cùng công việc của V0 sang GPU, ưu tiên đúng trước |
+| V2 | Kế thừa V1, thêm một ý tưởng tối ưu chính | Đo V1, xác định chỗ chậm, tối ưu chỗ đó |
+| V3 | Kế thừa V2, thêm một ý tưởng tối ưu chính | Đo lại V2 rồi xử lý bottleneck tiếp theo |
+
+V0–V3 phải dùng cùng phương pháp và tham số để so sánh công bằng. Mỗi phiên bản tối ưu phải có kết quả nhất quán với V0. Nếu bỏ một tối ưu đã có, notebook phải giải thích. Một tối ưu chạy chậm hơn vẫn có thể được báo cáo nếu có số liệu và phân tích trung thực.
+
+Biên dịch bằng `nvcc` chưa chứng minh chương trình chạy trên GPU: phải có kernel CUDA thực hiện các phép tính và bằng chứng đo đạc tương ứng.
+
+### 2.2. Dữ liệu và đầu ra
+
+- Ba cặp ảnh chuẩn ở ba địa điểm: indoor, outdoor và custom; thêm một cặp challenging.
+- Tám ảnh gốc, overlap khoảng 30–50%; crop 16:9 và resize thành 24 ảnh ở ba độ phân giải.
+- Small: 1280 × 720; medium: 1920 × 1080; large: 3840 × 2160.
+- Dùng synthetic pair có ground truth để kiểm tra hình học. Nếu tự tạo, phải ghi rõ nguồn gốc; không gọi đó là synthetic chính thức của môn học.
+- Panorama ánh xạ ảnh phải B vào hệ tọa độ ảnh trái A: `H: B → A`.
+- Gallery có các cặp được cung cấp nếu có, các cặp nhóm tự chụp và ít nhất một trường hợp thất bại được phân tích.
+
+### 2.3. Những gì đề không bắt buộc
+
+Đề không bắt buộc FAST–BRIEF, SIFT, ORB hoặc một paper duy nhất; nhóm được chọn phương pháp phù hợp và phải giải thích chất lượng cùng hiệu quả song song. Đề không yêu cầu ảnh gốc phải là HEIC, không bắt buộc upload toàn bộ project lên Drive, cũng không bắt buộc mỗi lần Run All tải lại dataset nếu dữ liệu đã sẵn sàng. Yêu cầu chính là notebook chạy từ đầu đến cuối trên phiên Colab GPU mới, không cần thao tác thủ công ngoài upload dataset nếu cần.
+
+## 3. Điểm xuất phát sau Midterm
+
+### 3.1. Những thành phần hiện có
+
+| Thành phần | Hiện trạng để kế thừa |
+| --- | --- |
+| `src/v0_frontend.cpp` | Grayscale, Gaussian blur, FAST, NMS, Top-K, BRIEF |
+| `src/v0_backend.cpp` | Matching, RANSAC/refinement, inverse warp, exposure compensation, seam/feather |
+| `src/v0_stitching.cpp` | Kết nối 6 stage, kiểm tra input/H/canvas và đo CPU |
+| `src/main.cu` | CLI hiện chỉ cho chạy V0; cần bổ sung lựa chọn V1–V3 |
+| `src/common.h`, `src/versions.h` | Kiểu dữ liệu và giao diện cần mở rộng thống nhất |
+| `src/cuda_utils.cuh` | Tiện ích CUDA cần kiểm tra và hoàn thiện khi dùng thực tế |
+| `tools/build.py`, `src/Makefile` | Hiện xây dựng V0; cần bổ sung nguồn CUDA mới |
+| `tools/prepare_dataset.py` | Chuẩn bị ảnh từ raw và tạo synthetic |
+| `tools/benchmark.py`, `tools/report.py` | Đo/báo cáo V0; cần hỗ trợ nhiều phiên bản và GPU metrics |
+| `Group22_Midterm.ipynb` | Báo cáo Midterm; giữ làm mốc, xây dựng notebook Finalterm riêng |
+
+Đây là trạng thái mã hiện có, không phải kết quả nghiệm thu Finalterm. CUDA V1–V3 và benchmark GPU chưa được chứng minh hoàn thành trong kế hoạch này.
+
+### 3.2. Những hạn chế cần biết
+
+- FAST–BRIEF hiện chưa có đầy đủ khả năng bất biến xoay/tỉ lệ như ORB đa tỉ lệ hoặc SIFT.
+- Một global homography không xử lý được mọi thị sai; panorama vẫn có thể bị méo phối cảnh hoặc bóng kép.
+- CUDA tăng tốc phép tính, không tự sửa giới hạn hình học của thuật toán.
+- Crop chỉ giúp bỏ vùng đen; phải giữ ảnh full canvas để đánh giá xem có mất nội dung hay che lỗi.
+- Synthetic chỉ gồm hai crop tịnh tiến từ một ảnh chưa kiểm tra đầy đủ homography phối cảnh tổng quát.
+- Cần đối chiếu ảnh thực với nhãn indoor/outdoor/challenging; không coi tên file là bằng chứng đạt tiêu chí cảnh chụp.
+
+### 3.3. Số liệu V0 dùng để định hướng ban đầu
+
+Các giá trị dưới đây lấy từ `outputs_v0/summary.json` đang có khi lập kế hoạch, trên Windows CPU; đơn vị ms, medium 1920 × 1080, làm tròn hai chữ số.
+
+| Cặp ảnh | Matching | Warp/blend | Tổng pipeline |
+| --- | ---: | ---: | ---: |
+| `site1_indoor` | 51,20 | 160,23 | 280,32 |
+| `site2_outdoor` | 102,15 | 122,91 | 303,00 |
+| `site3_custom` | 10,73 | 142,19 | 217,16 |
+| `site4_challenging` | 1.116,53 | 209,50 | 1.812,66 |
+
+Matching và warp/blend đáng được khảo sát, nhưng bảng CPU này **không thay thế profiling V1/V2 trên GPU**. Không đưa nguyên các số này vào bảng speedup Finalterm; phải đo lại V0–V3 trong phiên Colab dùng để so sánh và sinh bảng từ output notebook.
+
+## 4. Thống nhất pipeline trước khi viết CUDA
+
+### 4.1. Luồng dữ liệu
+
+```text
+Ảnh RGB A → grayscale → Gaussian blur → FAST/NMS/Top-K → BRIEF A ─┐
+                                                               ├→ matching
+Ảnh RGB B → grayscale → Gaussian blur → FAST/NMS/Top-K → BRIEF B ─┘
+    → RANSAC + refinement → H: B → A
+    → xác định canvas → inverse warp + bilinear
+    → exposure compensation + seam/feather → panorama
 ```
 
-#### Ma trận đối chiếu Trách nhiệm theo từng Tệp tin & Mục tiêu Đề tài (Deliverables Matrix):
+Grayscale và blur là preprocessing bên trong pipeline. Crop/resize ảnh về ba kích thước là bước chuẩn bị dataset trước benchmark. FAST, BRIEF, matching và RANSAC là các thuật toán xử lý chính, không gọi toàn bộ chuỗi là preprocessing.
 
-| Tệp tin / Thành phần | Thành viên phụ trách chính | Nội dung & Vai trò cụ thể | Điều khoản PDF (`MidTerm.pdf`) |
-| :--- | :---: | :--- | :--- |
-| **`v0_frontend.cpp`** | **Thành viên 2** | Cài đặt Stage 1 (Grayscale, Blur 5x5), Stage 2 (FAST/Harris, NMS, Top-K), Stage 3 (BRIEF 256-bit). Chú thích tác giả và nguồn tham khảo ở đầu file. | Mục 2 & Mục 3.4 (Sequential Version V0) |
-| **`v0_backend.cpp`** | **Thành viên 1** | Cài đặt Stage 4 (BF Hamming, Lowe's ratio test), Stage 5 (RANSAC 4-point DLT, inliers refinement), Stage 6 (Inverse Warping, Bilinear, Linear Feathering). Chú thích tác giả ở đầu file. | Mục 2 & Mục 3.4 (Sequential Version V0) |
-| **`common.h`**, **`versions.h`** | **Thành viên 3** | Định nghĩa cấu trúc dữ liệu hình ảnh, keypoint, descriptor, ma trận chuyển đổi; giao diện hàm `run_v0(...)`. | Mục 2 (What to submit - `src/`) |
-| **`cuda_utils.cuh`** | **Thành viên 3** | Macro kiểm tra lỗi CUDA (`CHECK_CUDA`) và lớp tiện ích đo thời gian GPU (`GpuTimer`) sẵn sàng cho các bản V1/V2. | Mục 2 (What to submit - `src/`) |
-| **`main.cu`**, **`stb_impl.cpp`** | **Thành viên 3** | CLI driver nạp ảnh, điều hướng tham số `--version 0 --runs N`, tích hợp bộ đo thời gian `high_resolution_clock`, xuất kết quả. | Mục 2 & Mục 4 (One source of truth) |
-| **`v0_stitching.cpp`** | **Thành viên 3** | Tích hợp frontend của TV2 và backend của TV1 thành pipeline `run_v0` hoàn chỉnh. | Mục 3.4 (V0 single-threaded C/C++) |
-| **`dataset/` (24 ảnh + Synthetic)** | **Thành viên 3** | Chụp 4 cặp ảnh, crop 16:9, tạo 24 ảnh theo 3 độ phân giải (Small, Medium, Large); tải synthetic pair; upload Google Drive. | Mục 2 & Mục 3.6 (Dataset & Registered sites) |
-| **`outputs_v0/` (4 Panoramas)** | **Thành viên 3** *(chạy V0)* | Chạy chương trình V0 trên 4 cặp ảnh Medium để tạo ra 4 ảnh panorama thành phẩm (1 ảnh cho mỗi site). | Mục 3.5 (Panoramas: one output per site) |
-| **`GroupXX_Midterm.ipynb`** | **Thành viên 3** *(chủ trì)* | Tổ chức cấu trúc notebook, viết setup cell Colab, tổng hợp bảng số liệu, vẽ đồ thị, tính Amdahl, tích hợp nội dung của TV1 & TV2. | Mục 2, 3 & 4 (Reproducible, All outputs saved) |
-| **Mục 3.2, 3.3, 3.7 (Stages 1–3)** | **Thành viên 2** | Thấu hiểu bài toán, lý giải thuật toán & tính phù hợp GPU, kế hoạch thread mapping V1, ý tưởng tối ưu V2/V3 cho Stages 1–3. | Mục 3.2, 3.3, 3.7 |
-| **Mục 3.2, 3.3, 3.7 (Stages 4–6)** | **Thành viên 1** | Thấu hiểu bài toán, lý giải thuật toán & tính phù hợp GPU, kế hoạch thread mapping V1, ý tưởng tối ưu V2/V3 cho Stages 4–6. | Mục 3.2, 3.3, 3.7 |
-| **Mục 3.1, 3.4, 3.5, 3.6** | **Thành viên 3** | Viết thông tin nhóm & work plan (3.1), kiến trúc V0 (3.4), kết quả profiling & Amdahl (3.5), mô tả 4 registered sites (3.6). | Mục 3.1, 3.4, 3.5, 3.6 |
+### 4.2. Đầu vào và đầu ra của từng stage
 
----
+| Stage | Làm gì? | Đầu vào → đầu ra |
+| --- | --- | --- |
+| 1. Preprocessing | Đổi ảnh sang mức xám và làm trơn | RGB → grayscale đã blur |
+| 2. Detection | Tìm vị trí góc, bỏ điểm cực đại trùng lân cận, giữ điểm mạnh | Grayscale → danh sách keypoint |
+| 3. Description | Tạo chữ ký nhị phân cho vùng quanh mỗi điểm | Keypoint + ảnh → descriptor 256 bit |
+| 4. Matching | Tìm chữ ký gần nhất và loại cặp mơ hồ | Descriptor A/B → danh sách match |
+| 5. Homography | Loại match sai và tìm phép biến đổi | Match + keypoint → H và tập inlier |
+| 6. Warp/blend | Biến đổi tọa độ và nối màu hai ảnh | RGB A/B + H → panorama |
 
-## 2. KIẾN TRÚC PIPELINE GHÉP ẢNH (6 GIAI ĐOẠN)
+### 4.3. Quy tắc khóa baseline
 
+Khuyến nghị giữ phương pháp Midterm cho đợt CUDA đầu tiên. Nếu cần nâng chất lượng, nhóm sửa và kiểm chứng V0 trước, sau đó áp dụng cùng thay đổi cho mọi phiên bản. Lưu mốc Midterm bằng commit/tag trước khi sửa baseline để còn đối chiếu.
+
+Không đổi riêng V3 sang SIFT/APAP rồi dùng speedup V3/V0 để kết luận về tối ưu CUDA. Không giảm độ phân giải, số keypoint, số RANSAC hypothesis hoặc chất lượng blending riêng ở một phiên bản để làm số đo đẹp hơn.
+
+Ghi tham số thực dùng vào một cấu hình chung; không chỉ đọc giá trị mặc định trong header vì nơi gọi hàm có thể truyền giá trị khác. Hiện pipeline gọi tối đa 1.500 keypoint/ảnh, ratio 0,75 và RANSAC tối đa 1.500 hypothesis, ngưỡng 3 pixel. FAST threshold hiện là 20. Đây là tham số của mã hiện có, không phải giá trị bắt buộc của đề.
+
+Chốt thêm sigma/kernel/border blur, seed và pattern BRIEF, NMS/tie-break, cách tính inlier, số lượt refinement, chính sách exposure/seam và giới hạn canvas. Thay đổi cấu hình phải làm phát sinh một lượt kiểm tra và benchmark lại toàn bộ phiên bản liên quan.
+
+## 5. V1 — Basic CUDA: Quân chủ trì
+
+### 5.1. Mục tiêu và phối hợp
+
+V1 thực hiện cùng công việc của V0 trên GPU. Thiết kế cơ bản, dễ giải thích; chưa cần gom nhiều tối ưu. CPU vẫn đọc/ghi ảnh, cấp phát, điều phối và xuất log. Những phép tính của sáu stage, gồm Top-K, refinement, exposure và seam khi được kích hoạt, phải được đưa lên GPU.
+
+- Quân: trực tiếp stages 4–6, kết nối dữ liệu giữa frontend/backend, chịu trách nhiệm nghiệm thu V1.
+- Phúc: trực tiếp stages 1–3, bàn giao keypoint/descriptor nằm trên GPU cho Quân.
+- Hưng: build/CLI, quản lý buffer dùng chung, CUDA events, công cụ đối chiếu và notebook V1.
+
+### 5.2. Công việc của Phúc trong V1
+
+1. Grayscale: mỗi thread xử lý một pixel, giữ cùng hệ số và cách làm tròn với V0.
+2. Gaussian blur: giữ phương pháp tách ngang/dọc như V0, cùng cách xử lý biên và dữ liệu trung gian.
+3. FAST: mỗi thread kiểm tra một pixel, ghi response vào buffer.
+4. NMS: đọc response đã tính xong; không vừa đọc vừa ghi đè response trong cùng bước.
+5. Thu thập keypoint: có thể bắt đầu bằng atomics; bảo đảm đủ dung lượng và không cắt cụt tùy tiện theo thứ tự thread chạy.
+6. Top-K: chọn trên GPU, với quy tắc xử lý điểm bằng response được thống nhất với V0.
+7. BRIEF: mỗi thread xử lý một keypoint; dùng đúng cùng pattern 256 cặp điểm và cùng quy tắc border.
+
+Không tự sinh pattern BRIEF bằng hai bộ sinh số ngẫu nhiên CPU/GPU rồi cho rằng cùng seed sẽ cho cùng kết quả. Nên dùng một pattern cố định chung cho mọi phiên bản.
+
+### 5.3. Công việc của Quân trong V1
+
+**Matching:** mỗi thread có thể phụ trách một descriptor A và duyệt descriptor B để tìm hai láng giềng gần nhất; thêm bước tìm chiều ngược cho cross-check. Dùng XOR/popcount để tính Hamming; lưu cả khoảng cách và index, quy định tie-break nhất quán. Không cần lưu toàn bộ ma trận khoảng cách nếu chỉ dùng top-2.
+
+**RANSAC:** các hypothesis độc lập được kiểm tra song song. Bản cơ bản có thể dùng một thread/hypothesis để giải bài toán nhỏ và duyệt match; sau đó reduction chọn hypothesis tốt nhất trên GPU. Giữ kiểm tra suy biến, metric sai số đối xứng và refinement như V0. Không thay bằng sai số một chiều chỉ vì dễ viết hơn.
+
+Chuẩn hóa cách lấy mẫu để CPU/GPU kiểm tra cùng danh sách bộ bốn match. Cùng seed ở hai thư viện random khác nhau chưa bảo đảm cùng chuỗi. Nếu chuẩn bị danh sách mẫu ở host, phải công khai phạm vi đó và tính đúng chi phí; các phép ước lượng, chấm điểm, chọn H và refinement vẫn thực hiện trên GPU.
+
+**Warp/blend:** tính phép chiếu/canvas, inverse warp và bilinear; thực hiện thống kê exposure bằng reduction; áp dụng cùng quyết định bật/tắt bù sáng và seam như V0. Mỗi pixel đầu ra do một thread ghi để tránh ghi đè lẫn nhau.
+
+**Seam:** thuật toán hiện tại có phụ thuộc giữa các hàng. Có thể tính các cột của một hàng song song, nhưng hàng sau phải đợi hàng trước. Kernel riêng cho từng hàng là cách khởi đầu dễ hiểu dù có overhead; không dùng `__syncthreads()` để giả định đồng bộ được toàn bộ các block. Giữ bước truy vết seam trên GPU, kể cả khi bản đầu chỉ dùng một thread cho phần này.
+
+### 5.4. Công việc của Hưng trong V1
+
+- Mở rộng CLI để điều phối `--version 0|1|2|3`; phiên bản chưa triển khai phải báo lỗi rõ ràng.
+- Sửa build để biên dịch/link nguồn CUDA; V0 vẫn giữ cách chạy đơn luồng để làm chuẩn.
+- Thêm buffer GPU có vòng đời rõ ràng, kiểm tra lỗi launch/cấp phát, giới hạn canvas và dọn bộ nhớ trên đường lỗi.
+- Mở rộng cấu trúc timing và CSV, ghi GPU/compiler/config/dataset/source hash.
+- Viết đối chiếu stage trung gian; tạo notebook chạy V0 và V1 cùng đầu vào.
+- Giữ log: `[SUCCESS]:` xanh, `[ERROR]:` đỏ, `[WARN]:` vàng, `[PROCESS]:` trắng; hỗ trợ `NO_COLOR` như hiện có.
+
+### 5.5. Tiêu chí hoàn thành V1
+
+- [ ] Biên dịch bằng CUDA trên môi trường mục tiêu và thực sự launch kernel cho cả sáu stage.
+- [ ] Không lén chuyển Top-K, RANSAC/refinement hoặc seam về CPU.
+- [ ] Đối chiếu stage và kiểm tra hình học đạt tiêu chí nhóm đã chốt.
+- [ ] Chạy đủ 4 cặp × 3 kích thước; thất bại được ghi rõ, không dùng lại ảnh kết quả cũ.
+- [ ] Có timing GPU từng stage, transfer, tổng kernel và end-to-end.
+- [ ] Có code và giải thích mapping thread/block trong notebook.
+- [ ] Có số đo V1 để lựa chọn tối ưu tiếp theo.
+
+## 6. V2 — Tối ưu matching: Phúc chủ trì
+
+### 6.1. Ý tưởng dự kiến và điều kiện chọn
+
+V2 dự kiến bổ sung **shared-memory tiling cho matching**. Ví dụ: nhiều thread cùng cần đọc các descriptor B; block tải một nhóm descriptor B vào bộ nhớ dùng chung, các thread tái sử dụng rồi chuyển sang nhóm tiếp theo.
+
+Chỉ chốt hướng này khi V1 cho thấy matching chiếm thời gian đáng kể và có bằng chứng truy cập bộ nhớ/tái sử dụng dữ liệu là vấn đề. Không suy ra matching bị giới hạn bởi bandwidth chỉ từ việc nó chạy chậm. Nếu matching đã rất nhỏ, chọn một bottleneck thực tế khác và cập nhật kế hoạch trước khi triển khai.
+
+### 6.2. Nhiệm vụ cụ thể
+
+1. Profile V1 trên medium và large, gồm cảnh nhiều keypoint và ít keypoint.
+2. Ghi thời gian matching, số descriptor A/B, cấu hình launch và bằng chứng profiler nếu có.
+3. Thêm kernel tiled matching, dùng cùng popcount và chính sách top-2/cross-check của V1.
+4. Bảo đảm mọi thread trong block đi qua barrier hợp lệ, kể cả tile cuối chưa đủ phần tử.
+5. Đo vài kích thước tile/block; ghi cấu hình và lý do chọn, không chỉ báo cấu hình nhanh nhất mà thiếu bối cảnh.
+6. Kiểm tra danh sách match và panorama; so sánh V2/V1 và V2/V0.
+
+Không gộp đổi thuật toán, giảm K, thêm streams và kernel fusion vào cùng V2. Giữ một ý tưởng chính để biết thay đổi nào tạo ra tác động. Nếu muốn thử đổi mapping thread sang warp, coi đó là thí nghiệm riêng hoặc giải thích rõ phần nào thuộc thay đổi chính.
+
+### 6.3. Phối hợp và bàn giao
+
+Phúc viết kernel và báo cáo V2. Quân review logic matching, tie-break và tác động tới RANSAC. Hưng tích hợp build/benchmark và lưu output. V2 phải tiếp tục dùng các stage GPU của V1; không dựng lại một pipeline độc lập khó đối chiếu.
+
+- [ ] Có bằng chứng bottleneck của V1 và giả thuyết vì sao tiling có ích.
+- [ ] V2 giữ nguyên phương pháp, tham số và kết quả trong tolerance đã chốt.
+- [ ] Có thời gian matching và toàn pipeline; không đánh đồng tăng tốc một stage với toàn chương trình.
+- [ ] Có phân tích trường hợp tile tăng overhead hoặc occupancy giảm.
+- [ ] Có commit, output và phần notebook tái lập được thí nghiệm.
+
+## 7. V3 — Tối ưu concurrency: Hưng chủ trì
+
+### 7.1. Ý tưởng dự kiến và điều kiện chọn
+
+Stages 1–3 của A không cần dữ liệu từ B. V3 dự kiến dùng hai CUDA streams để hai nhánh có cơ hội chạy đồng thời:
+
+```text
+Stream A: preprocess A → detect A → describe A → event A ─┐
+                                                        ├→ matching → RANSAC → warp/blend
+Stream B: preprocess B → detect B → describe B → event B ─┘
+                   Matching phải chờ cả event A và B.
 ```
-[Ảnh A] ──> [Stage 1: Preprocessing] ──> [Stage 2: Keypoints] ──> [Stage 3: Descriptors] ──┐
-                                                                                             │
-[Ảnh B] ──> [Stage 1: Preprocessing] ──> [Stage 2: Keypoints] ──> [Stage 3: Descriptors] ──┼──> [Stage 4: Matching] ──> [Stage 5: RANSAC] ──> [Stage 6: Warping & Blending] ──> [Panorama]
+
+Streams giống hai hàng công việc độc lập. GPU có chạy đồng thời được hay không còn phụ thuộc tài nguyên và mức sử dụng của từng kernel; hai streams không đồng nghĩa tốc độ gấp đôi.
+
+### 7.2. Nhiệm vụ cụ thể
+
+1. Profile V2 để xem frontend đang nối tiếp bao lâu và có cơ hội overlap hay không.
+2. Cho các hàm frontend nhận stream; tách scratch buffer/counter của A và B.
+3. Ghi event khi descriptor mỗi ảnh sẵn sàng; stream downstream chờ đúng event.
+4. Tránh đồng bộ toàn device sau mỗi kernel nếu không cần; giữ kiểm tra lỗi và đồng bộ tại ranh giới đo/phụ thuộc.
+5. Giữ nguyên tiled matching của V2 và cấu hình thuật toán chung.
+6. Đo thời gian hai nhánh, thời gian join, tổng kernel và end-to-end; kiểm tra kết quả qua nhiều lần chạy.
+7. Dùng timeline hoặc bằng chứng tương đương để xác nhận có overlap thực tế.
+
+Để tách tác động của streams, V1/V2 nên đã giữ buffer trên GPU giữa các stage và tái sử dụng cấp phát. Không đồng thời thêm pinned memory, memory pool và kernel fusion vào V3 rồi gán mọi lợi ích cho streams. Nếu chọn các tối ưu đó, tách thí nghiệm và giải thích phạm vi.
+
+### 7.3. Khi nào đổi hướng V3?
+
+Nếu V2 chủ yếu tốn warp/blend hoặc frontend đã dùng hết tài nguyên GPU, streams có thể không đáng làm. Khi đó Hưng chọn một ý tưởng khác dựa trên profiling, ví dụ tối ưu đọc ảnh cho warping hoặc tối ưu reduction của RANSAC. Giữ thứ tự `V0 → V1 → V2 → V3`, ghi lý do thay đổi trong notebook.
+
+Texture filtering có thể khác manual bilinear về độ chính xác; chỉ chọn khi hiểu và kiểm chứng sai số. Nếu dùng streams nhưng chậm hơn, có thể báo cáo trung thực; không tạo số đo tốt giả hoặc giấu thí nghiệm.
+
+### 7.4. Tiêu chí hoàn thành V3
+
+- [ ] Có bằng chứng bottleneck V2 và mô tả một ý tưởng tối ưu chính.
+- [ ] Giữ các tối ưu V2, hoặc giải thích rõ nếu loại bỏ.
+- [ ] Có kiểm tra dependency, buffer và tính lặp lại; không race condition.
+- [ ] Nếu dùng streams, có bằng chứng overlap hoặc phân tích vì sao không overlap.
+- [ ] Timing không cộng nhầm các khoảng chồng lấp thành tổng thời gian thực thi.
+- [ ] Có so sánh V3/V2, V3/V0 và phân tích cả trường hợp chậm hơn.
+
+## 8. Giao diện chung và tổ chức mã nguồn đề xuất
+
+Cấu trúc dưới đây là đề xuất, các file mang nhãn mới chưa mặc nhiên tồn tại:
+
+```text
+Midterm/                               # Có thể đổi tên thư mục sau, không khóa đường dẫn tuyệt đối
+├── assignment.md                      # Kế hoạch này
+├── Group22_Midterm.ipynb               # Mốc Midterm
+├── Group22_Finalterm.ipynb             # Mới: notebook nộp cuối kỳ
+├── README.md
+├── team.json
+├── requirements.txt
+├── requirement/finalterm/
+├── src/
+│   ├── common.h, versions.h           # Giao diện chung do nhóm thống nhất
+│   ├── main.cu                        # Một CLI chọn V0–V3
+│   ├── logging.h, cuda_utils.cuh
+│   ├── v0_frontend.cpp
+│   ├── v0_backend.cpp
+│   ├── v0_stitching.cpp
+│   ├── gpu_buffers.cuh                # Mới: buffer GPU và context
+│   ├── gpu_frontend.cu                # Mới: Phúc, stages 1–3
+│   ├── gpu_backend.cu                 # Mới: Quân, stages 4–6
+│   ├── gpu_pipeline.cu                # Mới: tích hợp phiên bản/context
+│   ├── matching_tiled.cu              # Mới: Phúc, tối ưu V2
+│   └── Makefile
+├── tools/
+│   ├── build.py                       # Mở rộng
+│   ├── prepare_dataset.py             # Kế thừa, kiểm tra tương thích dữ liệu
+│   ├── benchmark.py                   # Mở rộng V0–V3
+│   ├── report.py                      # Sinh bảng/chart từ kết quả thật
+│   └── verify_versions.py             # Mới: đối chiếu các phiên bản
+├── dataset/
+│   ├── raw/                           # Tám ảnh gốc
+│   ├── prepared/{small,medium,large}/  # 24 ảnh benchmark và manifest
+│   └── synthetic/                     # GT, ảnh kiểm thử và provenance
+├── outputs_v0/                        # Giữ mốc cũ; tách với số đo Finalterm
+├── outputs_final/                     # Mới: mỗi phiên đo có thư mục riêng
+│   └── <session_id>/
+│       ├── environment.json
+│       ├── timings.csv, summary.json
+│       ├── v0/, v1/, v2/, v3/
+│       └── profiling/
+└── presentation/                      # Mới: slides và thông tin video
 ```
 
-* **Stage 1 (Preprocessing):** Chuyển ảnh màu RGB sang Grayscale và làm mịn giảm nhiễu (Gaussian Blur).
-* **Stage 2 (Keypoint Detection):** Tìm các điểm đặc trưng nổi bật (FAST / Harris Corner) + lọc Non-Maximum Suppression (NMS) + Top-K.
-* **Stage 3 (Description):** Trích xuất vector đặc trưng mô tả vùng lân cận (BRIEF / ORB 256-bit nhị phân).
-* **Stage 4 (Matching):** So khớp đặc trưng giữa hai ảnh (Brute-Force khoảng cách Hamming + Lowe's ratio test).
-* **Stage 5 (Homography Estimation):** Ước lượng ma trận biến đổi hình học $3\times3$ bằng RANSAC 4 điểm (DLT).
-* **Stage 6 (Warping & Blending):** Biến đổi ngược (Inverse Warping với Bilinear Interpolation) và hòa trộn biên ảnh (Linear Feathering Blending).
+Giao diện module cần nêu: kích thước buffer, kiểu dữ liệu, host/device ownership, stream, số phần tử hợp lệ, nơi chờ kết quả và cách trả lỗi. Giữ descriptor 32 byte/keypoint hoặc mô tả cách biểu diễn tương đương rõ ràng; không để frontend và backend hiểu khác thứ tự bit/index.
 
----
+Hưng chủ trì `common.h`, `versions.h`, `main.cu`, schema timing và build; Quân/Phúc gửi đề xuất thay đổi giao diện trước khi dùng. Các phiên bản tái sử dụng stage chung, chỉ thay kernel/chiến lược liên quan thay vì sao chép toàn bộ pipeline.
 
-## 3. PHÂN CHIA NHIỆM VỤ CHI TIẾT CHO TỪNG THÀNH VIÊN
+CLI mục tiêu trên Colab, sau khi đã triển khai:
 
----
+```bash
+mkdir -p outputs_final/manual
+./stitch dataset/prepared/medium/site1_indoor_left.png \
+         dataset/prepared/medium/site1_indoor_right.png \
+         outputs_final/manual/panorama_v1.png \
+         --version 1 --runs 5 --warmup 1
+```
 
-### THÀNH VIÊN 1: BACK-END & ALGORITHMIC CORE LEAD
-*(Phụ trách các giai đoạn 4, 5, 6 của Pipeline tuần tự & Kế hoạch GPU tương ứng)*
+Lặp với version 0, 2, 3 và đầu ra khác nhau. Đây là giao diện đích; CLI hiện tại vẫn chỉ hỗ trợ V0. Khi sửa CLI, đặt mặc định `--runs` thành 5 để khớp đặc tả Finalterm; mã hiện có đang mặc định 1. Tài liệu chỉ đưa lệnh chạy khi chức năng tương ứng đã có.
 
-#### 1. Trách nhiệm kỹ thuật mã nguồn (C/C++ V0):
-* **Cài đặt Stage 4 - Feature Matching:**
-  * Hiện thực thuật toán Brute-Force Matcher tính khoảng cách Hamming giữa các vector descriptor 256-bit của ảnh A và ảnh B.
-  * Tích hợp **Lowe's ratio test** ($d_1 / d_2 < \text{threshold}$, với $d_1, d_2$ lần lượt là khoảng cách nhỏ nhất và nhỏ thứ nhì, gợi ý $0.75 - 0.8$) để loại bỏ các điểm ghép cặp mơ hồ.
-  * Tùy chọn kiểm tra chéo (Cross-check consistency) để tăng độ tin cậy.
-* **Cài đặt Stage 5 - Homography Estimation with RANSAC:**
-  * Thuật toán RANSAC chuẩn: lặp $N$ lần (ví dụ $1000 - 2000$ iterations). Mỗi lần chọn ngẫu nhiên 4 cặp điểm không đồng tuyến.
-  * Giải hệ phương trình DLT (Direct Linear Transformation) bằng phép khử Gauss hoặc SVD để tìm ma trận $H$ kích thước $3 \times 3$.
-  * Áp dụng biến đổi chiếu $p' = H \cdot p$ để đếm số lượng điểm khớp đúng (inliers) thỏa khoảng cách sai số Euclidean dưới ngưỡng $\tau$ (ví dụ 3.0 pixels).
-  * Lưu lại ma trận $H$ tốt nhất có số inliers lớn nhất; thực hiện bước Refinement tính toán lại $H$ từ toàn bộ tập inliers này.
-* **Cài đặt Stage 6 - Warping & Blending:**
-  * Tính ma trận nghịch đảo $H^{-1}$.
-  * Xác định kích thước canvas bao bọc ảnh ghép (bounding box).
-  * Hiện thực kỹ thuật **Inverse Warping**: duyệt qua từng pixel của canvas, dùng $H^{-1}$ chiếu ngược về tọa độ thực trên ảnh nguồn để tránh lỗ hổng pixel (holes).
-  * Áp dụng thuật toán nội suy song tuyến tính (**Bilinear Interpolation**) để làm mịn chất lượng ảnh tái tạo.
-  * Hiện thực thuật toán hòa trộn tuyến tính (**Linear Feathering / Alpha Blending**) tại vùng chồng lấp (overlap) để khử vệt sáng/tối tại đường ranh giới ghép.
+## 9. Kiểm tra tính đúng: làm trước khi tin vào speedup
 
-#### 2. Trách nhiệm viết Báo cáo & Thiết kế GPU (Midterm Report):
-* Soạn thảo chi tiết thuật toán mục **3.2 (Problem Understanding)** và **3.3 (Chosen Methods)** cho các Stages 4, 5, 6. Phần lý giải phải bao gồm cả **chất lượng đầu ra** (output quality) lẫn **tính phù hợp để song song hóa trên GPU** (GPU suitability) — ví dụ: Brute-force matching có độ phức tạp cao nhưng mỗi cặp so khớp hoàn toàn độc lập nên rất phù hợp GPU; Inverse warping mỗi pixel tính toán riêng biệt nên song song hóa tự nhiên.
-* Soạn thảo mục **3.7 (GPU Plan)** cho các Stages 4, 5, 6:
-  * **V1 Thread Mapping:** Mỗi thread tính khoảng cách so khớp cho 1 descriptor; mỗi warp hoặc block chạy thử nghiệm 1 giả thuyết RANSAC độc lập; mỗi thread tính toán màu cho 1 output pixel trên canvas warping.
-  * **Kế hoạch tối ưu V2/V3:** Tận dụng Tiled Shared Memory cho ma trận descriptor; lệnh nội tại đếm bit `__popc()` cho khoảng cách Hamming; sử dụng CUDA Texture Memory cho phép nội suy song tuyến tính phần cứng khi warping; tối ưu Warp-shuffle reduction để đếm inlier trong RANSAC.
-* Lường trước các rủi ro kỹ thuật (Warp divergence trong RANSAC, overhead khi warp canvas kích thước lớn).
+### 9.1. Đối chiếu theo từng stage
 
-#### 3. Tiêu chí hoàn thành (Definition of Done - DoD):
-* [ ] Code C++ chạy đúng, sạch sẽ, không rò rỉ bộ nhớ, có comment giải thích và trích dẫn tác giả ở đầu file.
-* [ ] Hàm ghép ảnh nhận đầu vào là 2 ảnh và xuất ra ảnh panorama ghép chuẩn xác, không bị méo lệch hay lộ vệt cắt nối rõ rệt.
-* [ ] Hoàn thành toàn bộ nội dung lý thuyết và thiết kế GPU của Stages 4, 5, 6 trong Notebook.
+| Đối tượng | Cách kiểm tra |
+| --- | --- |
+| Grayscale/blur | So cùng pixel và báo sai số tối đa/trung bình; giải thích sai số làm tròn |
+| Keypoint | So vị trí/response, NMS, Top-K và tie-break; không chỉ so số lượng |
+| Descriptor | Với cùng ảnh/keypoint/pattern, so từng bit |
+| Matching | So index, khoảng cách, top-2, ratio và mutual cross-check |
+| RANSAC | Dùng cùng mẫu kiểm thử, so inlier và sai số chiếu; kiểm tra mẫu suy biến |
+| Panorama | So hình học/canvas, pixel trên vùng hợp lệ, seam, exposure và ảnh full canvas |
 
----
+Chốt tolerance trước khi benchmark, ghi trong notebook và giữ nguyên giữa các phiên bản. Không nới tolerance tùy phiên bản chỉ để kiểm tra vượt qua. Với dữ liệu rời rạc như descriptor/matching, ưu tiên khớp chính xác khi các đầu vào tương ứng giống nhau.
 
-### THÀNH VIÊN 2: FRONT-END & COMPUTER VISION CORE LEAD
-*(Phụ trách các giai đoạn 1, 2, 3 của Pipeline tuần tự & Kế hoạch GPU tương ứng)*
+### 9.2. Kiểm tra homography
 
-#### 1. Trách nhiệm kỹ thuật mã nguồn (C/C++ V0):
-* **Cài đặt Stage 1 - Preprocessing:**
-  * Chuyển đổi ảnh màu RGB sang Grayscale theo trọng số độ chói tiêu chuẩn: $Y = 0.299R + 0.587G + 0.114B$.
-  * Tạo ma trận Gaussian Kernel (ví dụ kích thước $5\times5$, $\sigma = 1.0 - 1.4$).
-  * Thực hiện tích chập làm mịn ảnh để khử nhiễu hạt trước khi phát hiện góc. Khuyến khích cài đặt tích chập tách rời 2 chiều (Separable 1D filter: lọc hàng rồi lọc cột) để tối ưu độ phức tạp từ $O(K^2)$ xuống $O(2K)$.
-* **Cài đặt Stage 2 - Keypoint Detection:**
-  * Hiện thực thuật toán nhận diện góc: Khuyến khích chọn **FAST (Features from Accelerated Segment Test)** vì tốc độ cao và cực kỳ phù hợp để song song hóa GPU, hoặc chọn **Harris Corner Detector**.
-  * Cài đặt cơ chế kiểm tra nhanh: với FAST, xét vòng tròn 16 pixel xung quanh, kiểm tra trước 4 điểm la bàn (1, 5, 9, 13) để loại bỏ sớm các pixel phẳng.
-  * Hiện thực thuật toán triệt tiêu cực đại cục bộ (**Non-Maximum Suppression - NMS**) trong cửa sổ $3\times3$ hoặc $5\times5$ để tránh các điểm đặc trưng dồn cục.
-  * Cơ chế chọn lọc **Top-K keypoints** (ví dụ giữ lại 1000 - 2000 điểm có điểm số góc cao nhất) để kiểm soát khối lượng tính toán ở các bước sau.
-* **Cài đặt Stage 3 - Feature Description:**
-  * Hiện thực trích xuất vector đặc trưng **BRIEF** (hoặc ORB đơn giản hóa).
-  * Định nghĩa mẫu phân bố ngẫu nhiên chuẩn Gaussian (Gaussian sampling pattern) gồm 256 cặp tọa độ tương đối $(p_i, q_i)$ trong vùng lân cận $31\times31$ xung quanh keypoint.
-  * Sinh chuỗi nhị phân 256-bit (lưu trong mảng `uint8_t[32]` hoặc `uint32_t[8]`): bit $i = 1$ nếu $I(p_i) < I(q_i)$, ngược lại bằng $0$.
+Chuẩn hóa H nếu cần và đo sai số vị trí điểm sau phép chiếu. Một tiêu chí nội bộ đề xuất là sai số chiếu trung bình trên lưới kiểm tra không vượt 1 pixel với synthetic có GT; đây không phải ngưỡng bắt buộc do đề quy định. Ghi thêm sai số lớn nhất, vùng hợp lệ và điều kiện kiểm tra.
 
-#### 2. Trách nhiệm viết Báo cáo & Thiết kế GPU (Midterm Report):
-* Soạn thảo chi tiết thuật toán mục **3.2 (Problem Understanding)** và **3.3 (Chosen Methods)** cho các Stages 1, 2, 3. Phần lý giải phải bao gồm cả **chất lượng đầu ra** (output quality) lẫn **tính phù hợp để song song hóa trên GPU** (GPU suitability) — ví dụ: BRIEF descriptor 256-bit nhị phân cho phép dùng lệnh `__popc` đếm bit cực nhanh trên GPU; FAST detector chỉ xét vùng lân cận cục bộ nên mỗi pixel xử lý hoàn toàn độc lập.
-* Soạn thảo mục **3.7 (GPU Plan)** cho các Stages 1, 2, 3:
-  * **V1 Thread Mapping:** Mỗi thread xử lý 1 pixel cho phép chuyển xám và làm mịn; mỗi thread tính điểm phản hồi góc cho 1 pixel; mỗi thread sinh descriptor cho 1 keypoint.
-  * **Kế hoạch tối ưu V2/V3:** Stencil 2D Gaussian blur sử dụng Tiled Shared Memory có vùng biên (halos); kỹ thuật Prefix-Sum (Scan) / Stream Compaction để lọc tập điểm đặc trưng thay vì dùng biến đếm nguyên tử toàn cục (`atomicAdd`); sử dụng CUDA Streams để chạy song song Stages 1–3 cho ảnh A và ảnh B cùng một lúc.
-* Phân tích các rủi ro: Chi phí đọc bộ nhớ toàn cục (Global Memory latency) khi trích xuất descriptor không theo thứ tự liên tục (non-coalesced access).
+Không chỉ dùng khoảng cách giữa chín phần tử H: hai ma trận khác hệ số có thể biểu diễn cùng phép biến đổi. Tránh so trực tiếp hai panorama khác canvas bằng phép trừ pixel; phải căn đúng hệ tọa độ và vùng hợp lệ.
 
-#### 3. Tiêu chí hoàn thành (Definition of Done - DoD):
-* [ ] Code C++ chạy đơn luồng đúng chuẩn, có comment trích dẫn rõ ràng.
-* [ ] Đầu ra của Stage 2 & 3 phát hiện đúng và đủ các điểm đặc trưng rõ nét, ổn định trên các cặp ảnh thực nghiệm.
-* [ ] Hoàn thành toàn bộ nội dung lý thuyết và thiết kế GPU của Stages 1, 2, 3 trong Notebook.
+Ngoài synthetic tịnh tiến hiện có, nên bổ sung fixture có xoay/phối cảnh biết trước, mask vùng hợp lệ và provenance. Nếu môn học cung cấp cặp chính thức, kiểm thử thêm cặp đó. Không tự coi fixture tự tạo là thay thế được mọi kiểm thử chính thức.
 
----
+### 9.3. Trường hợp lỗi cần thử
 
-### THÀNH VIÊN 3: SYSTEM, DATA, PROFILING & NOTEBOOK LEAD
-*(Phụ trách Bộ dữ liệu, Khung điều khiển, Đo đạc thực nghiệm, Định luật Amdahl & Báo cáo tổng thể)*
+- Ảnh không đủ match, ảnh ít texture, pattern lặp lại.
+- Input không hợp lệ, H suy biến hoặc canvas quá lớn.
+- Nhiều góc vượt dung lượng candidate buffer và tile cuối không đủ phần tử.
+- Chạy nhiều lần với streams để phát hiện lỗi không ổn định.
+- Large có bộ nhớ đầu ra lớn hơn dự kiến do phép chiếu.
 
-#### 1. Trách nhiệm về Dữ liệu (Dataset Preparation — Mục 3.6 Notebook):
-* Chụp 4 cặp ảnh thực tế chất lượng cao bằng điện thoại/máy ảnh:
-  * Đứng cố định một chỗ và xoay người (Rotate, don't walk) để không bị lỗi thị sai (parallax).
-  * Độ phủ chồng lấp 30% - 50%.
-  * 3 cặp chuẩn: 1 địa điểm trong nhà (indoor), 1 địa điểm ngoài trời (outdoor), 1 địa điểm tự chọn.
-  * 1 cặp thử thách (challenging pair): bề mặt lặp lại, thiếu chi tiết hoặc ánh sáng yếu/ban đêm.
-* Viết script Python (hoặc xử lý trực tiếp) cắt ảnh theo tỉ lệ **16:9** và xuất ra đúng 3 độ phân giải:
-  * Small: $1280 \times 720$ (8 ảnh)
-  * Medium: $1920 \times 1080$ (8 ảnh)
-  * Large: $3840 \times 2160$ (8 ảnh)
-  * $\rightarrow$ Đủ 24 ảnh chuẩn trong thư mục `dataset/`.
-* Tải cặp ảnh nhân tạo **Synthetic pair** kèm ma trận chuyển đổi chuẩn (Ground-truth Homography) từ tài nguyên môn học.
-* Tải bộ dữ liệu lên Google Drive, bật quyền truy cập công khai và lưu link vào tài liệu.
-* **Trình bày Registered Sites trong Notebook (Mục 3.6):** Liệt kê và mô tả chi tiết từng địa điểm chụp (tên địa điểm, đặc điểm khung cảnh, lý do chọn, điều kiện ánh sáng) kèm ảnh minh họa trực quan các cặp ảnh gốc đã chụp.
+Chạy công cụ kiểm tra lỗi bộ nhớ CUDA nếu môi trường hỗ trợ. Khi chạy thất bại, ghi trạng thái và nguyên nhân, không điền thời gian 0 hoặc tái sử dụng panorama cũ để làm như thành công.
 
-#### 2. Trách nhiệm Khung chương trình (System Integration & Driver):
-* Quản trị Git repository, thiết lập cấu trúc thư mục chuẩn `src/`, tạo `common.h`, `versions.h`, `main.cu`.
-* Tích hợp thư viện đọc/ghi ảnh nhẹ `stb_image.h` và `stb_image_write.h` vào `src/stb_impl.cpp`.
-* Ghép nối code của Thành viên 1 và Thành viên 2 thành hàm hoàn chỉnh trong `v0_<name>.cpp`.
-* Hiện thực xử lý tham số dòng lệnh theo đúng chuẩn yêu cầu:
-  `./stitch <left_image> <right_image> <output_image> --version 0 [--runs N]`.
-* Tích hợp bộ đo thời gian bằng `std::chrono::high_resolution_clock` cho từng stage (loại trừ thời gian đọc ghi file ổ đĩa).
+## 10. Benchmark và profiling công bằng
 
-#### 3. Trách nhiệm Đo đạc (Profiling), Đánh giá & Hoàn thiện Báo cáo:
-* **Kiểm tra tính đúng đắn (Correctness):** Chạy chương trình trên cặp ảnh Synthetic pair, tính sai số Homography Error so với ground-truth (chuẩn Frobenius norm hoặc khoảng cách chiếu điểm).
-* **Xuất ảnh Panorama (bắt buộc — Mục 3.5 "Panoramas"):** Chạy V0 trên **tất cả 4 cặp ảnh dataset thực tế** (dùng độ phân giải Medium làm đại diện), lưu lại 4 ảnh panorama đầu ra và hiển thị trực quan trong Notebook — **mỗi địa điểm (site) phải có ít nhất 1 ảnh panorama kết quả** theo đúng yêu cầu đề bài.
-* **Đo thời gian (Timing & Benchmarking):**
-  * Chạy lặp lại ít nhất 5 lần (`--runs 5`), tính giá trị trung bình (Mean) và ghi nhận giá trị tối thiểu (Min) cho từng stage ở cả 3 kích thước ảnh (Small, Medium, Large).
-  * Lập bảng thống kê chi tiết thời gian của từng giai đoạn (Per-stage timing table).
-  * Vẽ biểu đồ cột / biểu đồ đường trực quan thể hiện thời gian thay đổi theo độ phân giải.
-* **Phân tích Hot Stages & Định luật Amdahl:**
-  * Xác định các giai đoạn chiếm nhiều thời gian nhất (thắt nút cổ chai).
-  * Xác định tỷ lệ thời gian $p$ của các giai đoạn dự định tăng tốc bằng GPU.
-  * Tính toán giới hạn tăng tốc lý thuyết: $\text{Speedup}_{\max} = \frac{1}{1 - p}$.
-* **Viết nội dung Mục 3.4 (Sequential version V0) trong Notebook:**
-  * Trình bày tổng quan kiến trúc mã nguồn V0: các file, hàm chính, cách các stage kết nối với nhau.
-  * Trích dẫn rõ ràng tất cả các nguồn mã mở đã tham khảo/chuyển thể (tên dự án, link, giấy phép).
-  * Giải thích ngắn gọn các thiết kế đáng chú ý (ví dụ: cấu trúc dữ liệu keypoint, cách lưu descriptor).
-* **Viết Setup Cell (cell đầu tiên) trong Notebook:**
-  * Viết cell tải/copy thư mục `src/` vào Colab session (từ Google Drive hoặc upload) và biên dịch chương trình. Ví dụ:
-    ```python
-    # Mount Drive, copy src/, compile
-    from google.colab import drive
-    drive.mount('/content/drive')
-    !cp -r /content/drive/MyDrive/GroupXX/src /content/src
-    !cd /content/src && nvcc -o stitch main.cu stb_impl.cpp v0_*.cpp -lm
-    ```
-  * Đây là điều kiện tiên quyết để Notebook chạy `Runtime -> Run all` thành công trên Colab mới.
-* **Soạn thảo Notebook (`GroupXX_Midterm.ipynb`):**
-  * Tích hợp Mục 3.1 (Thông tin nhóm & Kế hoạch làm việc), Mục 3.4 (Sequential version V0), Mục 3.5 (Kết quả V0 & Profiling), Mục 3.6 (Dataset).
-  * Đảm bảo nguyên tắc: **Một nguồn sự thật duy nhất** (One source of truth - code biên dịch từ `src/`, KHÔNG copy code rời rạc vào notebook), **Khả năng tái lập** (Chạy từ đầu đến cuối với `Runtime -> Run all` trên Colab mới), **Số liệu từ output** (Toàn bộ số liệu trong bài viết đều xuất phát từ cell kết quả).
-  * Đóng gói file nén `GroupXX_Midterm.zip` kiểm tra lần cuối trước khi nộp.
+### 10.1. Quy trình đo theo đề
 
-#### 4. Tiêu chí hoàn thành (Definition of Done - DoD):
-* [ ] Đủ 24 ảnh dataset chất lượng cao + 1 cặp synthetic test + link Google Drive hoạt động tốt.
-* [ ] Mô tả chi tiết từng registered site (tên, đặc điểm, lý do chọn) được trình bày trong Notebook mục 3.6.
-* [ ] Chương trình V0 biên dịch mượt mà bằng lệnh `nvcc` hoặc `g++`, chạy CLI đúng chuẩn.
-* [ ] Setup cell Colab (copy src/ + compile) hoạt động trơn tru trên session mới.
-* [ ] Mục 3.4 trong Notebook trình bày rõ kiến trúc V0, trích dẫn đầy đủ nguồn mã mở.
-* [ ] 4 ảnh panorama (1 per site) được xuất ra và hiển thị trong Notebook mục 3.5.
-* [ ] Bảng đo đạc thời gian, tính toán Amdahl và đồ thị hiển thị đầy đủ, chính xác trong Notebook.
-* [ ] Notebook Colab chạy thành công không có bất kỳ lỗi nào từ cell đầu đến cell cuối (`Runtime -> Run all`).
+1. Dùng cùng ảnh, tham số, mã nguồn và chính sách cấp phát cho các phiên bản.
+2. Trong một phiên Colab GPU, ghi GPU, CPU, CUDA/compiler và session ID; đo lại cả V0.
+3. Warm-up một lần trước đo; tối thiểu năm lần chạy có timing cho mỗi cấu hình.
+4. V0 dùng `std::chrono::high_resolution_clock`; stage GPU dùng CUDA events.
+5. Loại thời gian tải/crop/resize dataset và đọc/ghi file ảnh khỏi timing pipeline.
+6. Báo mean; báo thêm minimum khi phương sai lớn. Nên lưu đủ từng sample để kiểm tra độ biến động.
+7. So sánh từng phiên bản trên từng cặp ảnh và từng độ phân giải.
 
----
+Ma trận chính: 4 phiên bản × 4 cặp × 3 kích thước = 48 cấu hình, tối thiểu 240 lần chạy có timing, chưa tính warm-up và synthetic. Cặp thất bại vẫn là một kết quả phải báo cáo, không ép pipeline nhận H sai để đủ số thành công.
 
-## 4. KẾ HOẠCH DÀI HẠN TỪ GIỮA KỲ ĐẾN BẢN NỘP CUỐI KỲ (FINAL SUBMISSION)
+### 10.2. Các loại thời gian phải tách rõ
 
-Bảng phân công này được thiết kế để sử dụng trực tiếp cho **Mục 3.1 trong Báo cáo giữa kỳ**:
+| Đại lượng | Ý nghĩa |
+| --- | --- |
+| Thời gian stage | Các phép tính thuộc một stage; ghi rõ cách gộp hai ảnh |
+| Tổng kernel time | Tổng thời gian kernel, nêu cách thu thập; có thể lấy từ profiler |
+| GPU pipeline elapsed | Khoảng thực từ lúc pipeline GPU bắt đầu đến lúc hoàn tất, gồm phụ thuộc/overlap |
+| H2D / D2H | Thời gian truyền host → device và device → host |
+| End-to-end | Từ input RGB đã ở RAM đến panorama cuối đã ở RAM, gồm truyền và điều phối; loại disk I/O |
 
-| Phiên bản / Mốc thời gian | Thành viên 1 (Back-end Lead) | Thành viên 2 (Front-end Lead) | Thành viên 3 (System & Data Lead) |
-| :--- | :--- | :--- | :--- |
-| **Midterm (Tuần 7)**<br>*V0 - Sequential Baseline* | Hiện thực V0 cho Stages 4, 5, 6; đề xuất kế hoạch GPU cho Matching, RANSAC, Warping. | Hiện thực V0 cho Stages 1, 2, 3; đề xuất kế hoạch GPU cho Preprocessing, Detection, Description. | Thu thập dataset 24 ảnh; dựng khung `main.cu`; đo thời gian V0; phân tích Amdahl; hoàn thiện Notebook. |
-| **V1: Basic CUDA (Tuần 8 - 9)**<br>*Chuyển toàn bộ pipeline sang GPU* | Chuyển Stages 4, 5, 6 sang các CUDA kernel cơ bản (1 match/thread, 1 pixel/thread). | Chuyển Stages 1, 2, 3 sang các CUDA kernel cơ bản (1 pixel/thread, trích xuất descriptor trên GPU). | Đo thời gian bằng CUDA Events cho từng kernel; kiểm tra tính nhất quán kết quả V1 so với V0; tính speedup. |
-| **V2: Optimized CUDA (Tuần 10)**<br>*Tối ưu mức bộ nhớ & thuật toán* | Tối ưu Stage 4 & 5: Dùng Shared Memory Tiling cho Matching; dùng `__popc` cho Hamming distance; song song hóa RANSAC. | Tối ưu Stage 1, 2, 3: Separable convolution với Shared Memory Tiling + Halos; Prefix-Sum compaction cho keypoints. | Profiling chi tiết bằng Nsight Systems & Nsight Compute (Memory throughput, Occupancy, Warp stalls); cập nhật báo cáo. |
-| **V3: Further Optimized (Tuần 11)**<br>*Tối ưu nâng cao & Pipeline* | Tối ưu Stage 6: Dùng CUDA Texture Memory cho phép nội suy song tuyến tính phần cứng; tối ưu blending song song. | Áp dụng CUDA Streams để chạy đồng thời Stages 1–3 cho cả 2 ảnh A và B trên 2 stream độc lập. | Tối ưu Kernel Fusion (gộp Grayscale + Blur); dùng Pinned Memory (Zero-copy) giảm độ trễ truyền dữ liệu PCIe. |
-| **Final Submission (Tuần 12 - 13)**<br>*Đóng gói, Slide & Video* | Soạn slide phần Matching, Homography, Warping; thuyết minh phần kỹ thuật liên quan trong video demo. | Soạn slide phần Preprocessing, Feature Extraction; thuyết minh trong video demo. | Tổng hợp Notebook cuối kỳ, xuất file PDF, viết file `README.md`, dựng và upload video demo (20–30 phút) lên YouTube. |
+CUDA event quanh một stage nhiều kernel đo khoảng elapsed của stage, không mặc nhiên là tổng thời lượng riêng từng kernel. Với streams, tổng các thời lượng có thể lớn hơn thời gian thực trôi qua vì chồng lấp. Cần event trên đúng stream và join đầy đủ trước khi kết thúc phép đo.
 
----
+Thống nhất việc cấp phát nằm trong hay ngoài vùng đo và công khai. Nếu tái sử dụng buffer, mọi phiên bản GPU áp dụng cùng chính sách, đồng thời ghi rõ đây là phép đo steady-state.
 
-## 5. QUY ƯỚC LÀM VIỆC NHÓM TRÊN GIT (GIT WORKFLOW)
+```text
+Speedup so V0 = T(V0) / T(Vn)
+Speedup so bản trước = T(Vn-1) / T(Vn)
+```
 
-Để quá trình làm việc nhóm diễn ra trơn tru, không xảy ra xung đột mã nguồn (merge conflict), nhóm tuân thủ các quy định sau:
+So cùng phạm vi thời gian, ví dụ end-to-end với end-to-end. Tách bảng kernel-only nếu cần; không lấy CPU end-to-end chia GPU kernel-only rồi gọi là speedup toàn chương trình. Khi tổng hợp nhiều cảnh, nêu rõ cách lấy trung bình; không trộn mẫu thất bại hoặc số đo khác session vào cùng bảng.
 
-### 1. Phân nhánh (Branching Strategy):
-* `main`: Nhánh ổn định cao nhất, chỉ merge vào khi code đã được kiểm thử chạy đúng.
-* `dev`: Nhánh tích hợp chính của cả nhóm.
-* `feature/stage1-3-frontend`: Nhánh làm việc của Thành viên 2.
-* `feature/stage4-6-backend`: Nhánh làm việc của Thành viên 1.
-* `feature/system-benchmark`: Nhánh làm việc của Thành viên 3.
+### 10.3. Bằng chứng tối ưu V2/V3
 
-### 2. Quy chuẩn Commit Message:
-Cú pháp: `[Phạm vi] Hành động: Mô tả ngắn gọn`
-* `[v0-frontend] Feat: Hoàn thành FAST corner detector và NMS`
-* `[v0-backend] Feat: Cài đặt RANSAC homography estimation với 1000 vòng lặp`
-* `[system] Benchmark: Thêm bảng đo thời gian 5 lần lặp cho độ phân giải Large`
-* `[docs] Update: Bổ sung phân tích định luật Amdahl vào notebook`
+Mỗi phiên bản cần đủ năm phần: **bottleneck → ý tưởng → thay đổi mã → kết quả → phân tích**. Lưu timeline Nsight Systems, metrics Nsight Compute hoặc bằng chứng profiling phù hợp; ảnh chụp và tóm tắt văn bản đều được đề chấp nhận. Nếu Colab hạn chế công cụ, ghi giới hạn thực tế và dùng bằng chứng đo được; không tạo metrics giả hay suy diễn bandwidth/occupancy từ một con số thời gian.
 
-### 3. Quy tắc tích hợp:
-* Tuyệt đối không commit trực tiếp các file binary (như file `.exe`, file chạy `./stitch`, các file ảnh kết quả nặng) lên repository.
-* Sử dụng `.gitignore` để loại bỏ các tệp sinh ra tự động.
+Không hứa trước V2 nhanh gấp 2 hoặc V3 nhanh gấp 10. Dùng profiling để quyết định và báo cả kết quả không đạt kỳ vọng.
 
----
+## 11. Notebook Finalterm và Colab
 
-## 6. TIẾN ĐỘ THỰC HIỆN TỪNG NGÀY (SPRINT SCHEDULE)
+### 11.1. Luồng Run All mục tiêu
 
-* **Ngày 1 - 2:** Thiết lập Git, Thành viên 3 đi chụp ảnh và chuẩn bị 24 ảnh dataset. Thống nhất struct dữ liệu giữa Stage 3 và Stage 4.
-* **Ngày 3 - 5:** Thành viên 1 và Thành viên 2 code độc lập các module của mình; test riêng lẻ từng hàm.
-* **Ngày 6:** Thành viên 3 tích hợp code vào `main.cu` và `v0_<name>.cpp`, chạy thử toàn bộ pipeline trên 1 cặp ảnh nhỏ. Fix bug tương thích.
-* **Ngày 7 - 8:** Chạy kiểm thử trên Synthetic Pair đo Homography Error; chạy benchmark đo thời gian trên 24 ảnh (Small, Medium, Large); Thành viên 3 tổng hợp bảng số liệu.
-* **Ngày 9 - 10:** Cả 3 thành viên viết phần thuyết minh lý thuyết và kế hoạch GPU vào `GroupXX_Midterm.ipynb`.
-* **Ngày 11:** Test chạy Colab từ đầu đến cuối trên session mới (`Runtime -> Run all`). Đóng gói `GroupXX_Midterm.zip` và nộp bài.
+```text
+Kiểm tra môi trường/GPU → xác định ROOT → chuẩn bị dependencies và mã nguồn
+→ lấy dataset, kiểm tra đủ file/hash → chuẩn bị 24 ảnh và synthetic
+→ biên dịch từ source → kiểm tra correctness
+→ benchmark V0–V3 cùng session → sinh bảng/chart/gallery
+→ trình bày profiling, hạn chế, kết luận và references
+```
+
+Không phụ thuộc `stitch.exe` của Windows trên Colab. Colab phải biên dịch binary Linux `stitch` từ source. `ROOT` phải là thư mục chứa project thực tế; `Path.cwd()` trên Colab không tự cho biết thư mục cha của notebook trong Drive.
+
+Để tái lập dễ hơn, có thể copy mã và dữ liệu cần thiết từ Drive sang thư mục runtime để chạy, sau đó lưu kết quả về Drive. Mount Drive có thể yêu cầu cấp quyền; ghi rõ bước đó. Trước nộp, thử Run All trên phiên GPU mới theo đường cấp dữ liệu đã chọn, tránh phụ thuộc file còn sót từ lần chạy trước.
+
+### 11.2. Dataset và file sinh lại
+
+- `dataset/raw`: giữ ảnh gốc, tránh xóa khi đường tải chưa được xác nhận hoạt động.
+- `dataset/prepared`: có thể sinh lại nếu đủ raw và dependencies đọc ảnh.
+- `dataset/synthetic/synthetic_GT.HEIC`: là ảnh nguồn nếu nhóm dùng fixture hiện tại; cần giữ hoặc có cách tải lại.
+- Synthetic left/right, H và `provenance.json`: sinh đồng bộ từ cùng nguồn; provenance mô tả nguồn thật.
+- Output benchmark: có thể chạy lại nhưng số đo sẽ phụ thuộc phần cứng/session; lưu nguyên kết quả đã dùng trong báo cáo.
+- Binary: build lại từ source; giữ source/build scripts và dependencies tương ứng.
+
+Nếu dùng Google Drive public download, phải thử quyền tải trong môi trường không đăng nhập. Nếu dùng mount Drive, đường dẫn cấu hình phải được ghi rõ. Không chỉ đổi đuôi JPG thành HEIC; định dạng nội dung cần đọc được. Ảnh raw không bắt buộc mang đuôi HEIC.
+
+### 11.3. Cấu trúc báo cáo theo đề và người viết
+
+| Mục notebook | Nội dung | Người chủ trì |
+| --- | --- | --- |
+| 1. Team information | Tên, MSSV, bảng đóng góp theo stage và version | Hưng tổng hợp; mỗi người xác nhận phần mình |
+| 2. Introduction | Bài toán và sơ đồ pipeline | Phúc + Quân |
+| 3. Chosen methods | Phương pháp, tham số, chất lượng và khả năng song song | Phúc stages 1–3; Quân stages 4–6 |
+| 4. V0 Sequential | Thiết kế, ảnh kết quả, timing và bottleneck | Hưng tổng hợp từ mã/kết quả thật |
+| 5. V1 Basic CUDA | Mapping, code, correctness, timing, speedup | Quân chủ trì; Phúc/Hưng bổ sung phần trực tiếp làm |
+| 6a. V2 | Đủ năm phần tối ưu | Phúc |
+| 6b. V3 | Đủ năm phần tối ưu | Hưng |
+| 7. Final comparison | Bảng/chart tất cả version/resolution, breakdown bản tốt nhất | Hưng |
+| 8. Results gallery | Synthetic/cặp được cung cấp và ảnh nhóm, failure case | Cả nhóm |
+| 9. Conclusion | Bài học, giới hạn, hướng tiếp | Cả nhóm |
+| 10. References | Trích dẫn đúng nơi dùng và khai báo AI | Mỗi người bổ sung nguồn; Hưng kiểm tra |
+
+Mỗi con số trong phần diễn giải phải có output cell làm căn cứ. Lưu output vào notebook nộp và xuất PDF. Không khẳng định đạt hiệu năng/chất lượng chỉ dựa trên kế hoạch này.
+
+## 12. Mốc thực hiện và phối hợp
+
+Các mốc dưới đây là thứ tự nghiệm thu, chưa gắn ngày cụ thể vì chưa có deadline Finalterm được xác nhận.
+
+| Mốc | Quân | Phúc | Hưng | Điều kiện chuyển mốc |
+| --- | --- | --- | --- | --- |
+| M0 — Chốt baseline | Rà backend/H/seam | Rà frontend/BRIEF/Top-K | Dataset, cấu hình, schema, môi trường | V0 tái lập được, giao diện đã thống nhất |
+| M1 — V1 từng module | Matching, RANSAC, warp/blend GPU | Preprocess, FAST/NMS/Top-K, BRIEF GPU | Build/CLI/events/đối chiếu | Module vượt kiểm tra stage |
+| M2 — V1 tích hợp | Chủ trì ghép pipeline và sửa lỗi | Sửa frontend, hỗ trợ tích hợp | Chạy ma trận V0/V1 và lưu evidence | Đủ sáu stage GPU, có correctness và timing |
+| M3 — V2 | Review backend | Chủ trì profiling và tối ưu V2 | Benchmark/báo cáo so sánh | Có evidence, kết quả và phân tích V2 |
+| M4 — V3 | Review dependency/backend | Hỗ trợ frontend/streams | Chủ trì profiling và tối ưu V3 | Có evidence, kết quả và phân tích V3 |
+| M5 — Bài nộp | Viết V1, demo backend | Viết V2, demo frontend/matching | Viết V3, tổng hợp Colab/PDF/package | Fresh Run All đạt, đủ hồ sơ |
+
+Trong lúc V1 đang phát triển, Phúc có thể chuẩn bị mô hình tiling và Hưng có thể chuẩn bị timeline/benchmark; chưa chốt kết luận tối ưu khi chưa có V1 chạy được. Ưu tiên hoàn thành V1 đầy đủ trước khi thêm nhiều tính năng nâng chất lượng.
+
+### 12.1. Quy ước Git
+
+- Nhánh gợi ý: `feat/v1-basic-cuda`, `feat/v1-frontend`, `feat/v2-tiled-matching`, `feat/v3-streams`, `chore/final-benchmark`.
+- Nhánh V2 lấy từ V1 đã tích hợp; nhánh V3 cập nhật từ V2 đã tích hợp. Merge thay đổi theo phụ thuộc và kiểm tra lại sau merge.
+- Mỗi PR/commit lớn nêu thay đổi, phạm vi phiên bản, cách kiểm tra, kết quả và giới hạn còn lại.
+- Không đổi schema/giao diện chung âm thầm; không commit dữ liệu nặng/binary/output tạm nếu repository không có chủ trương lưu chúng.
+- Người viết module chịu trách nhiệm sửa lỗi module và viết báo cáo phần mình; người tích hợp không mặc nhiên làm thay toàn bộ.
+
+### 12.2. Rủi ro và hướng xử lý
+
+| Rủi ro | Cách xử lý |
+| --- | --- |
+| Quân quá tải vì V1 | Phúc làm stages 1–3; Hưng làm hệ thống/đo/kiểm tra ngay từ M1 |
+| Chưa có GPU laptop | Dùng Colab GPU cho kiểm tra CUDA, lưu số đo và checkpoint; CPU local làm V0/công cụ |
+| GPU thay đổi giữa các lần chạy | Đo lại cả bảng trong một session; ghi GPU cho mỗi kết quả |
+| Top-K/random không nhất quán | Chốt tie-break, seed/pattern và dữ liệu kiểm thử chung trước tích hợp |
+| Seam khó song song | Bản đầu giữ phụ thuộc theo hàng, chấp nhận overhead; tối ưu sau profiling |
+| Large hết bộ nhớ | Ước lượng cả canvas/scratch, tránh ma trận matching không cần thiết; báo lỗi rõ ràng |
+| Panorama vẫn méo | Phân tích parallax/global H và ảnh chụp; nếu đổi phương pháp phải cập nhật mọi version |
+| Streams không tăng tốc | Kiểm tra overlap/tài nguyên và báo kết quả thật; đổi hướng V3 nếu evidence phù hợp |
+| Drive download lỗi | Xác nhận quyền hoặc dùng đường upload/mount được mô tả; kiểm tra đủ file trước prepare |
+
+## 13. Hồ sơ cuối kỳ và điều kiện hoàn tất
+
+Theo đề, nhóm cần notebook và PDF, toàn bộ mã nguồn cùng README, slides và video 20–30 phút. Video upload YouTube ở chế độ Unlisted, đặt link trong notebook/README; không upload video lên Moodle.
+
+Phân bổ video đề xuất: tổng quan 4 phút, live demo 7 phút, kết quả 7 phút, tối ưu/bài học 5 phút; tổng khoảng 23 phút. Mỗi người trình bày và giải thích phần mình, nhưng cả ba phải hiểu toàn pipeline.
+
+### Checklist nhóm trước nộp
+
+- [ ] Một CLI chạy được V0–V3 bằng `--version`.
+- [ ] V0 đơn luồng; V1 đủ sáu stage GPU; V2/V3 kế thừa bản trước với một ý tưởng tối ưu chính.
+- [ ] Cùng dataset/phương pháp/tham số và quy tắc timing giữa các bản.
+- [ ] Đủ 24 ảnh chuẩn bị và synthetic có nguồn gốc/GT rõ ràng; nhãn cảnh đã được kiểm tra.
+- [ ] Có correctness theo stage và hình học, có phân tích trường hợp thất bại.
+- [ ] Có đủ timing, speedup và evidence profiling cho các phiên bản tối ưu.
+- [ ] Mọi số liệu/ảnh trong báo cáo sinh từ mã nguồn nộp; lưu đủ sample/config/session.
+- [ ] Notebook Run All được trên phiên Colab GPU mới; đã lưu output và xuất PDF.
+- [ ] README có dependencies, CUDA version, build/run, yêu cầu phần cứng và output mong đợi.
+- [ ] Có slides và link YouTube Unlisted 20–30 phút trong notebook/README.
+- [ ] Trích dẫn ý tưởng/mã ngoài nhóm tại nơi dùng và References; khai báo AI đúng phạm vi sử dụng.
+- [ ] Bảng contribution phản ánh việc thực sự đã làm; cả ba giải thích và sửa được mã khi bảo vệ.
+
+Việc cập nhật `assignment.md` chỉ hoàn thiện kế hoạch. Chỉ đánh dấu các mục hoàn thành sau khi có mã, output kiểm tra và bằng chứng thực nghiệm tương ứng.
