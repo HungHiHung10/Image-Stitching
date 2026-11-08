@@ -32,14 +32,6 @@ HD inline double sqrt_of(double v) {
 #endif
 }
 
-HD inline double hypot_of(double x, double y) {
-#ifdef __CUDA_ARCH__
-    return hypot(x, y);
-#else
-    return std::hypot(x, y);
-#endif
-}
-
 HD inline bool is_finite(double v) {
 #ifdef __CUDA_ARCH__
     return isfinite(v);
@@ -201,8 +193,10 @@ HD inline bool dlt_fit(const float* src_xy, const float* dst_xy, int n, double o
     m.csx /= count; m.csy /= count; m.cdx /= count; m.cdy /= count;
     double src_spread = 0, dst_spread = 0;
     for (int i = 0; i < n; ++i) {
-        src_spread += hypot_of(src_xy[2*i] - m.csx, src_xy[2*i+1] - m.csy);
-        dst_spread += hypot_of(dst_xy[2*i] - m.cdx, dst_xy[2*i+1] - m.cdy);
+        double sdx = src_xy[2*i] - m.csx, sdy = src_xy[2*i+1] - m.csy;
+        double ddx = dst_xy[2*i] - m.cdx, ddy = dst_xy[2*i+1] - m.cdy;
+        src_spread += sqrt_of(sdx * sdx + sdy * sdy);
+        dst_spread += sqrt_of(ddx * ddx + ddy * ddy);
     }
     if (!dlt_finish_norm(src_spread, dst_spread, count, m)) return false;
     double ata[8][8] = {};
