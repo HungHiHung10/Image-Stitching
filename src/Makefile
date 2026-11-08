@@ -3,7 +3,7 @@ NVCC ?= nvcc
 CXX = g++
 TARGET ?= stitch
 SRCS = main.cu stb_impl.cpp v0_frontend.cpp v0_backend.cpp v0_stitching.cpp
-HEADERS = common.h versions.h pipeline_config.h hd_math.h logging.h stb_image.h stb_image_write.h
+HEADERS = common.h versions.h pipeline_config.h hd_math.h brief_pattern.h logging.h stb_image.h stb_image_write.h
 all: cpu
 cpu: $(SRCS) $(HEADERS)
 	$(CXX) -O3 -std=c++14 -x c++ $(SRCS) -o $(TARGET)
