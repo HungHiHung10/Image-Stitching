@@ -8,36 +8,78 @@
 
 ## Trạng thái Phần A (cập nhật 08/11/2026, nhánh `refactor/v0-baseline-lock`)
 
-| Mục | Commit | Trạng thái | Đã kiểm tra trên máy (Apple clang, libc++) |
-|---|---|---|---|
-| A.8 bước 0b `tools/compare_runs.py` | `dd021d4` | Xong | So một thư mục với chính nó → mã 0; thư mục bị sửa H/log/ảnh → mã 1, báo đúng từng mục. Nhánh thống kê pixel cần Pillow + numpy, chưa chạy |
-| A1 `pipeline_config.h` | `67b596f` | Xong | 8 cặp thử: H, panorama, log trùng từng byte với `main` |
-| A2 `hd_math.h` | `442181b` | Xong | Trùng từng byte với `main`; kiểm tra cú pháp device sm_75/host bằng clang CUDA qua; **chưa biên dịch bằng nvcc** |
-| A5 dữ liệu trung gian + `--dump-dir` | `34a1c95` | Xong | Có dump hay không đều trùng từng byte; file dump khớp log; thư mục không tồn tại → mã 1 |
-| A3 RNG splitmix64 | `ddc2937` | Xong | `ransac_sample` đúng phạm vi, không trùng, xác định, phân bố đều; 8 cặp thử H vẫn trùng từng byte |
-| A4 thứ tự keypoint + bảng BRIEF | `29a10c4` | Xong, **chờ Phúc duyệt** | Đánh chỉ số bảng đúng (trùng từng byte khi bảng mang giá trị libc++); đổi thứ tự làm match đổi ±1–3, sai số so với H đúng không đổi |
-| A6 giữ dòng log | — | Giữ nguyên | `compare_runs.py` đọc được mọi dòng log như trước |
-| A.8 bước 0 tag `midterm-v0` | — | **Chưa làm** | Cần Hưng tag trên `main` |
+**Kết luận:** Phần A đã xong và đã được kiểm tra qua 2 lượt trên Colab (Tesla T4, nvcc 13.0, g++ 13.3, Python 3.13). Nhánh sẵn sàng push và mở PR. Trước khi merge vào `main` còn 2 việc ngoài code: Phúc duyệt A4, Hưng tag `midterm-v0`.
 
-Bộ thử trên máy gồm 8 cặp sinh từ `synthetic_GT.HEIC`: tịnh tiến, xoay 4°, phối cảnh, bù sáng, ép seam, >1500 keypoint, 3840×2160, và ảnh phẳng gây lỗi. Các cặp này đi qua mọi nhánh của V0, nhưng **không thay thế 12 cặp thật + synthetic trên Colab**.
+| Mục | Commit | Trạng thái |
+|---|---|---|
+| `PLAN.md` | `930d6eb` | Xong |
+| A.8 bước 0b `tools/compare_runs.py` | `dd021d4` | Xong |
+| A1 `pipeline_config.h` | `67b596f` | Xong |
+| A2 `hd_math.h` | `442181b`, sửa ở `9b20fb4` | Xong |
+| A5 dữ liệu trung gian + `--dump-dir` | `34a1c95` | Xong |
+| A3 RNG splitmix64 | `ddc2937` | Xong |
+| A4 thứ tự keypoint + bảng BRIEF | `29a10c4` | Xong, **chờ Phúc duyệt** |
+| A6 giữ dòng log | — | Giữ nguyên |
+| A.8 bước 0 tag `midterm-v0` | — | **Chưa làm**, cần Hưng tag trên `main` |
 
-**Khác so với kế hoạch:**
+### Kết quả kiểm tra trên Colab
+
+Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo. Đó là một notebook chứa sẵn mã nguồn của các mốc commit và chạy nền trên Colab. Log và JSON tổng hợp của 2 lượt lưu trong `verify_partA/results/`.
+
+| Kiểm tra | Lượt | Kết quả |
+|---|---|---|
+| 8 ảnh raw tải từ Drive, so SHA256 với `dataset/prepared/manifest.json` | 1, 2 | Trùng 8/8 |
+| `main` chạy trên Colab so với notebook Midterm | 1 | Trùng: 12/12 cặp; MAE medium 11.951 / 3.824 / 9.051 / 22.330 |
+| `main → A1 → A2 → A5` trên 12 cặp thật + synthetic | 1 | Trùng từng byte: H, panorama, log |
+| Commit sửa `hypot` so với commit trước | 2 | 12/13 trùng từng byte; `small_site3_custom` có H lệch 6e-12 px, log và panorama vẫn trùng |
+| Bảng BRIEF so với `std::normal_distribution` của libstdc++ | 1, 2 | Trùng 256/256 hàng |
+| Build g++ `-Wall -Wextra` mọi mốc; `tools/build.py` (nvcc), `make cuda`, `make cpu` | 1, 2 | Đều qua, không có cảnh báo từ code của nhóm |
+| `--dump-dir` (medium ×4, `small_site4`, synthetic): match tính lại bằng brute-force theo luật V0, inlier tính lại từ H, canvas/seam/blend | 1, 2 | Đạt mọi cặp; inlier lệch 0 |
+| Thứ tự keypoint trong dump | 1, 2 | Từ A4 trở đi đã sắp theo (response giảm, y, x) |
+| Synthetic | 1, 2 | Sai số < 1e-10 px ở mọi mốc |
+| `tools/benchmark.py` của HEAD (binary nvcc, runs=5, warmup=1) | 2 | 12/12 cặp, correctness đạt; H trùng bản build bằng g++ |
+| Hàm `hd::` trên GPU so với CPU (8.192 trường hợp, `--fmad=false`) | 2 | Trùng từng bit ở mọi hàm |
+
+### Phát hiện cần nhóm biết
+
+1. **`hypot`:** ở lượt 1, `hd::dlt_fit` trên GPU lệch CPU ở 2.917/8.107 trường hợp dù đã `--fmad=false`, vì `hypot` của CUDA và glibc làm tròn khác nhau (lệch 2.298/8.192 lần gọi). Commit `9b20fb4` thay bằng `sqrt(dx*dx + dy*dy)`, và lượt 2 lệch 0. Quy tắc rút ra: hàm `HD` chỉ dùng `+ − × ÷` và `sqrt`; không thêm `-march=native` hay `-ffast-math` vào build V0.
+2. **FMA:** khi để FMA mặc định, `dlt_fit` lệch ở mọi trường hợp, `sample_bilinear` lệch 3.825/7.025 điểm, `sqrt_sum` lệch 34 lần. Vì vậy mọi bản GPU phải build với `--fmad=false` (mục 6).
+3. **A3/A4 làm đổi kết quả ở các cặp ít inlier.** Lượt 2 cho đúng số liệu của lượt 1, nghĩa là kết quả xác định; nó chỉ đổi theo chuỗi mẫu RANSAC và thứ tự keypoint. MAE vùng chồng lấp giảm nhẹ hoặc giữ nguyên, không thấy dấu hiệu chất lượng kém đi. Panorama của V0 Final sẽ khác Midterm ở các cặp có H lệch dưới đây, và notebook Final phải nêu rõ điều này.
+
+   | Cặp | `main`: inlier, MAE, blend | HEAD: inlier, MAE, blend | H lệch (mean / max px) |
+   |---|---|---|---|
+   | small_site1_indoor | 20/38, 9.76, unchanged/feather | 21/38, 8.98, unchanged/feather | 29.3 / 193 |
+   | small_site2_outdoor | 141/142, 3.56, affine/feather | 140/142, 3.55, affine/feather | 2.4 / 11 |
+   | small_site3_custom | 11/12, 9.30, affine/feather | 11/12, 9.30, affine/feather | < 1e-10 |
+   | small_site4_challenging | 259/273, 18.08, unchanged/optimal | 259/273, 18.08, unchanged/optimal | < 1e-10 |
+   | medium_site1_indoor | 26/58, 11.95, unchanged/feather | 25/58, 11.67, unchanged/feather | 12.4 / 72 |
+   | medium_site2_outdoor | 215/239, 3.82, affine/feather | 215/239, 3.82, affine/feather | < 1e-10 |
+   | medium_site3_custom | 23/28, 9.05, affine/feather | 23/28, 9.05, affine/feather | < 1e-10 |
+   | medium_site4_challenging | 173/196, 22.33, unchanged/optimal | 171/195, 22.14, unchanged/optimal | 0.7 / 6 |
+   | large_site1_indoor | 22/46, 10.50, unchanged/feather | 21/46, 9.32, unchanged/feather | 39.0 / 271 |
+   | large_site2_outdoor | 344/526, 4.80, affine/feather | 341/527, 4.81, affine/feather | 1.7 / 10 |
+   | large_site3_custom | 53/78, 9.83, affine/feather | 52/77, 9.61, affine/feather | 9.2 / 51 |
+   | large_site4_challenging | 76/120, 28.03, unchanged/optimal | 74/120, 27.18, unchanged/optimal | 52.4 / 388 |
+   | synthetic | 1343/1347, 0.00, unchanged/feather | 1343/1347, 0.00, unchanged/feather | < 1e-10 |
+
+4. **Pixel ở mép canvas:** ngay cả khi H chỉ lệch 1e-11 px, khoảng 0,016% số pixel ở mép canvas vẫn bị đổi giữa "trong" và "ngoài" ảnh (lệch tới 255). Tiêu chí so pixel giữa V0 và V1 phải tính đến điều này, trừ khi H trùng từng bit.
+5. **Thời gian V0 trên Colab** (benchmark lượt 2, trung bình 4 site): small 738 ms, medium 1.108 ms, large 3.250 ms. Stage chậm nhất là matching ở small/medium và keypoint ở large. Số này chỉ để định hướng; bảng speedup Final phải đo lại trong cùng phiên với V1.
+
+### Khác so với kế hoạch
+
 - A1 sửa cả hằng stage 1–3 trong `v0_frontend.cpp`, giá trị mặc định trong `versions.h` và danh sách `HEADERS` trong Makefile.
+- A2: `dlt_fit` dùng `sqrt(dx*dx + dy*dy)` thay `hypot` (commit `9b20fb4`, phát hiện 1).
 - A5: `PipelineTrace` có thêm `descA/descB` để so descriptor từng bit (assignment 9.1); `BlendInfo` ghi cả `canvas_w/h`, `offset_x/y`.
 - A3: giới hạn 64 lần rút là hằng `hd::kRansacMaxDrawAttempts`.
-- A4: máy này chỉ có libc++, nên bảng được sinh bằng cách mô phỏng `std::normal_distribution<float>` của libstdc++. Generator `tools/gen_brief_pattern.cpp` dùng thư viện thật để đối chiếu trên Colab.
-- Theo yêu cầu, code mới không có comment, kể cả comment đầu file ghi tác giả/nguồn. Nguồn splitmix64 phải được trích dẫn trong notebook.
+- A4: bảng BRIEF được sinh bằng cách mô phỏng `std::normal_distribution<float>` của libstdc++; Colab đã xác nhận trùng 256/256 hàng. Generator `tools/gen_brief_pattern.cpp` sinh lại bảng bằng thư viện thật.
+- Theo yêu cầu, code mới không có comment, kể cả comment đầu file ghi tác giả/nguồn.
 
-**Việc còn lại phải chạy trên Colab** (sau khi push nhánh, tải dataset và chạy `prepare_dataset.py` như A.9):
+### Việc còn lại để đóng Phần A
 
-```bash
-g++ -O2 -std=c++14 tools/gen_brief_pattern.cpp -o /tmp/gen && /tmp/gen | diff - src/brief_pattern.h && echo "BRIEF khớp libstdc++"
-git checkout main && python tools/build.py && python tools/benchmark.py --runs 5 --warmup 1; cp -r outputs_v0 /content/v0_main
-git checkout refactor/v0-baseline-lock && python tools/build.py && python tools/benchmark.py --runs 5 --warmup 1; cp -r outputs_v0 /content/v0_branch
-python tools/compare_runs.py /content/v0_main /content/v0_branch
-```
-
-Kỳ vọng: nếu lệnh `diff` không in gì, khác biệt giữa hai lần chạy chỉ đến từ A3 (mẫu RANSAC) và thứ tự Top-K của A4. Ghi bảng khác biệt này vào notebook như mục A.0 yêu cầu.
+- [ ] TV1 push nhánh và mở PR vào `main`, kèm tóm tắt mục này.
+- [ ] Phúc duyệt A4 (`v0_frontend.cpp`, `brief_pattern.h`).
+- [ ] Hưng tag `midterm-v0` trên `main` trước khi merge, và duyệt các thay đổi ở `common.h`, `versions.h`, `main.cu`, Makefile.
+- [ ] Sau khi merge: Hưng chạy lại benchmark V0 cho notebook Final; notebook ghi rõ V0 Final khác V0 Midterm ở A3/A4 (bảng ở phát hiện 3) và trích dẫn splitmix64 (Steele, Lea, Flood, OOPSLA 2014) trong References.
 
 ## 0. Tóm tắt
 
@@ -75,8 +117,8 @@ Kỳ vọng: nếu lệnh `diff` không in gì, khác biệt giữa hai lần ch
 |---|---|---|
 | V0 backend [v0_backend.cpp](src/v0_backend.cpp) | Đủ stage 4–6. Notebook Midterm ghi 12/12 cặp thành công, sai số chiếu synthetic khoảng 1e-11 px | Tham số viết cứng rải rác; GPU không tái tạo được RNG |
 | CUDA stage 4–6 | Chưa có, chưa có `gpu_backend.cu` | Toàn bộ |
-| `run_v1` / `gpu_pipeline.cu` | Chỉ có prototype bị comment trong [versions.h](src/versions.h#L62) | Toàn bộ |
-| CLI | [main.cu:63](src/main.cu#L63) từ chối mọi version khác 0; `--runs` mặc định 1 | Phần của Hưng, TV1 cần để chạy V1 |
+| `run_v1` / `gpu_pipeline.cu` | Chỉ có prototype bị comment trong [versions.h](src/versions.h#L65) | Toàn bộ |
+| CLI | [main.cu:133](src/main.cu#L133) từ chối mọi version khác 0; `--runs` mặc định 1 | Phần của Hưng, TV1 cần để chạy V1 |
 | Build | Target `cuda` trong Makefile chỉ dùng nvcc biên dịch lại nguồn V0, không có `-arch`, không có file `.cu` mới | Phần của Hưng |
 | Benchmark | [benchmark.py:58](tools/benchmark.py#L58) cứng `--version 0` | Phần của Hưng. V1 phải in đúng dòng `Blend: ...` mà [benchmark.py:76](tools/benchmark.py#L76) đọc |
 | Đối chiếu stage | Chưa có `verify_versions.py` | Hưng viết công cụ; TV1 cung cấp dữ liệu trung gian stage 4–6 (A5) |
@@ -111,7 +153,7 @@ Commit `37b72fe` (23/10) bổ sung cho backend: mutual cross-check, DLT chuẩn 
 ## A1 — Header cấu hình chung
 
 **Vấn đề:** tham số đang nằm ở ba nơi:
-- trong lời gọi hàm ở [v0_stitching.cpp:52](src/v0_stitching.cpp#L52), [:70](src/v0_stitching.cpp#L70), [:85](src/v0_stitching.cpp#L85);
+- trong lời gọi hàm ở `v0_stitching.cpp` dòng 52, 70, 85 (bản `main`);
 - trong giá trị mặc định ở [versions.h](src/versions.h);
 - và viết trực tiếp trong thân hàm stage 6.
 
@@ -192,15 +234,15 @@ HD bool   sample_bilinear(const uint8_t* rgb, int w, int h, float x, float y, fl
 
 Quy tắc khi viết:
 - Không dùng `std::vector`, `std::max/min`, `std::abs` trong hàm `HD`.
-- Dùng helper tự viết `hd_max(a,b) = (a < b) ? b : a` và `hd_min(a,b) = (b < a) ? b : a`, đúng ngữ nghĩa `std::max/min`. Dùng `fabs`, `sqrt`, `hypot`, `isfinite` của `<cmath>` vì đều có trên device.
-- **Giữ đúng thứ tự phép tính và các chỗ ép kiểu** như V0, gồm: ép `float` trong `project_point` ([v0_backend.cpp:192-198](src/v0_backend.cpp#L192-L198)) và thứ tự tính tâm → khoảng cách trung bình → cộng dồn ATA ([138-187](src/v0_backend.cpp#L138-L187)).
+- Dùng helper tự viết `hd_max(a,b) = (a < b) ? b : a` và `hd_min(a,b) = (b < a) ? b : a`, đúng ngữ nghĩa `std::max/min`. Dùng `fabs`, `sqrt`, `isfinite` của `<cmath>` vì đều có trên device. Không dùng `hypot`: CUDA và glibc làm tròn khác nhau (xem phát hiện 1 ở mục Trạng thái).
+- **Giữ đúng thứ tự phép tính và các chỗ ép kiểu** như V0, gồm: ép `float` trong `project_point` (nay ở [hd_math.h:229-236](src/hd_math.h#L229-L236)) và thứ tự tính tâm → khoảng cách trung bình → cộng dồn ATA (nay ở [hd_math.h:185-207](src/hd_math.h#L185-L207)).
 - `solve_homography_points` trong V0 đổi sang nhận con trỏ + số phần tử. `sample_bilinear` nhận con trỏ dữ liệu ảnh thay vì `ImageRGB`.
 
 **Kiểm tra:** output trùng từng byte với mốc (A.8 bước 2). Không cần thay đổi cờ biên dịch.
 
 ## A3 — RNG của RANSAC dùng chung CPU/GPU [Cần nhóm duyệt]
 
-**Vấn đề:** [v0_backend.cpp:209-210](src/v0_backend.cpp#L209-L210) dùng `std::mt19937` + `std::uniform_int_distribution`. Cách distribution biến số ngẫu nhiên thành chỉ số do thư viện chuẩn tự quyết, nên GPU không tái tạo được chuỗi mẫu. Hai thư viện khác nhau dù cùng seed cũng không chắc cho cùng chuỗi (assignment 5.3).
+**Vấn đề:** `v0_backend.cpp` dòng 209–210 (bản `main`) dùng `std::mt19937` + `std::uniform_int_distribution`. Cách distribution biến số ngẫu nhiên thành chỉ số do thư viện chuẩn tự quyết, nên GPU không tái tạo được chuỗi mẫu. Hai thư viện khác nhau dù cùng seed cũng không chắc cho cùng chuỗi (assignment 5.3).
 
 **Đề xuất:** hàm sinh số dạng hash theo bộ đếm (counter-based). Mỗi hypothesis tự sinh mẫu của mình mà không cần trạng thái chung, nên chạy được một thread cho một hypothesis:
 
@@ -238,14 +280,14 @@ HD inline bool ransac_sample(uint32_t seed, uint32_t iter, uint32_t n, int out[4
 ## A4 — Thứ tự keypoint xác định [Cần nhóm duyệt — file của Phúc]
 
 **Vấn đề:** score FAST là tổng các số nguyên ([v0_frontend.cpp:149-153](src/v0_frontend.cpp#L149-L153)), nên các điểm **bằng response xảy ra thường xuyên**. Thêm hai điều nữa:
-- `std::partial_sort` không ổn định ([181-187](src/v0_frontend.cpp#L181-L187)), nên thứ tự giữa các điểm bằng nhau không xác định;
+- `std::partial_sort` không ổn định (dòng 181–187 bản `main`), nên thứ tự giữa các điểm bằng nhau không xác định;
 - khi có ≤ 1500 điểm thì không sắp xếp, giữ thứ tự quét raster.
 
 Frontend GPU gom điểm bằng atomics sẽ ra thứ tự khác. Thứ tự keypoint đổi kéo theo chỉ số match đổi, mẫu RANSAC đổi và H khác, dù backend hoàn toàn đúng.
 
 **Đề xuất:** luôn sắp theo khóa toàn phần (response giảm dần, y tăng, x tăng) bằng `std::sort`, rồi cắt lấy K điểm đầu. Nếu Phúc muốn giữ thứ tự raster khi ≤ K thì cũng được, miễn V0 và V1 dùng cùng một quy tắc.
 
-**Đề xuất thêm cho Phúc:** pattern BRIEF hiện sinh bằng `std::mt19937` + `std::normal_distribution` ([200-212](src/v0_frontend.cpp#L200-L212)), nên GPU cũng không tái tạo được. Nên sinh pattern một lần từ V0 rồi ghi thành mảng hằng 256 × 4 dùng chung (assignment 5.2).
+**Đề xuất thêm cho Phúc:** pattern BRIEF hiện sinh bằng `std::mt19937` + `std::normal_distribution` (dòng 200–212 bản `main`), nên GPU cũng không tái tạo được. Nên sinh pattern một lần từ V0 rồi ghi thành mảng hằng 256 × 4 dùng chung (assignment 5.2).
 
 TV1 chỉ đề xuất và kiểm tra ảnh hưởng tới stage 4–6; việc sửa file do Phúc quyết.
 
@@ -286,8 +328,8 @@ bool run_v0(..., Homography3x3* outH = nullptr, PipelineTrace* trace = nullptr);
 - `Keypoints: A=<n>, B=<n>`
 - `Mutual ratio matches: <n>`
 - `RANSAC inliers: <n>/<m>`
-- `Blend: exposure=<affine|unchanged>, overlap MAE=<x>, seam=<optimal|feather>` ([v0_backend.cpp:444-447](src/v0_backend.cpp#L444-L447))
-- Các thông báo lỗi trong [v0_stitching.cpp:74-129](src/v0_stitching.cpp#L74-L129)
+- `Blend: exposure=<affine|unchanged>, overlap MAE=<x>, seam=<optimal|feather>` ([v0_backend.cpp:287-290](src/v0_backend.cpp#L287-L290))
+- Các thông báo lỗi trong [v0_stitching.cpp:84-147](src/v0_stitching.cpp#L84-L147)
 
 ## A7 — Những gì cố ý KHÔNG sửa trong V0
 
@@ -351,16 +393,16 @@ Trên macOS chỉ biên dịch được V0: `cd src && make cpu`. Để chuẩn 
 
 1. **RNG RANSAC:** dùng `ransac_sample` chung (A3).
 2. **Thứ tự match:** V0 xuất match theo `queryIdx` tăng dần, và mẫu RANSAC là chỉ số vào danh sách match. Không gom match bằng `atomicAdd`; dùng cờ đánh dấu + prefix sum để giữ thứ tự.
-3. **Cách chọn khi khoảng cách bằng nhau trong matching** ([52-58](src/v0_backend.cpp#L52-L58), [64-74](src/v0_backend.cpp#L64-L74)):
+3. **Cách chọn khi khoảng cách bằng nhau trong matching** ([35-46](src/v0_backend.cpp#L35-L46), [52-60](src/v0_backend.cpp#L52-L60)):
    - Chiều thuận lấy `j` nhỏ nhất.
    - Khoảng cách bằng best được ghi vào `second`, nên ratio bằng 1 và match bị loại.
    - Chiều ngược lấy `i` nhỏ nhất.
    - Giữ nguyên phép chia float `best/second < 0.75`, đừng đổi thành `best < 0.75*second`.
-4. **Chọn hypothesis tốt nhất** ([260](src/v0_backend.cpp#L260)): V0 dùng `>` nghiêm ngặt, nên khi bằng số inlier thì iteration sớm nhất thắng. Reduction trên GPU so theo cặp (số inlier lớn nhất, iter nhỏ nhất).
+4. **Chọn hypothesis tốt nhất** ([136](src/v0_backend.cpp#L136)): V0 dùng `>` nghiêm ngặt, nên khi bằng số inlier thì iteration sớm nhất thắng. Reduction trên GPU so theo cặp (số inlier lớn nhất, iter nhỏ nhất).
 5. **Ép float giữa chừng** trong `project_point`: dùng hàm chung (A2).
 6. **FMA:** nvcc mặc định gộp phép nhân-cộng. Điểm nằm sát ngưỡng 3 px có thể đổi trạng thái inlier, và pixel có thể lệch 1 khi ép `uint8_t`. Đề xuất `--fmad=false` cho mọi bản GPU (mục 6).
 7. **Cộng số thực theo thứ tự khác:** thống kê exposure và ATA khi refit đều là phép cộng dồn. Không dùng `atomicAdd` double vì mỗi lần chạy cho kết quả hơi khác. Dùng reduction 2 bước có thứ tự cố định: mỗi block tính một tổng con, rồi một kernel cộng các tổng con theo thứ tự.
-8. **Seam DP** ([449-490](src/v0_backend.cpp#L449-L490)):
+8. **Seam DP** ([291-333](src/v0_backend.cpp#L291-L333)):
    - Xét `d = -2..2` theo thứ tự với `<`, nên khi bằng nhau thì `d` nhỏ nhất thắng.
    - Hàng không có pixel hợp lệ bị bỏ qua và `previous` giữ nguyên.
    - Truy vết bắt đầu từ chỉ số đầu tiên mà `min_element` trả về.
@@ -400,7 +442,7 @@ File mới của TV1: `src/gpu_backend.cuh` (giao diện), `src/gpu_backend.cu` 
 | `collect_inliers` | 1 thread cho 1 match, sau đó gom có thứ tự |
 | `refit_normalize` / `refit_accumulate` | Reduction tâm và khoảng cách trung bình, rồi reduction ATA (64 số) + ATb (8 số) theo thứ tự cố định |
 | `refit_solve` | 1 thread chạy `dlt_solve`; lặp 2 lượt như V0 |
-| `canvas_bounds` | 1 thread chiếu 4 góc ảnh B; copy vài số về host để cấp phát canvas và kiểm tra như [v0_stitching.cpp:99-129](src/v0_stitching.cpp#L99-L129) |
+| `canvas_bounds` | 1 thread chiếu 4 góc ảnh B; copy vài số về host để cấp phát canvas và kiểm tra như [v0_stitching.cpp:117-148](src/v0_stitching.cpp#L117-L148) |
 
 - Giữ double để khớp V0. GPU T4 chạy double rất chậm (khoảng 1/32 tốc độ float); ghi điều này vào phần phân tích V1, đây là dữ liệu tốt cho V2/V3.
 - Không đổi sang sai số một chiều.
@@ -457,7 +499,7 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
 
 ## B.4 M2 — Tích hợp và nghiệm thu V1 (TV1 chủ trì)
 
-- [ ] Viết `run_v1(...)` trong `src/gpu_pipeline.cu`, cùng chữ ký `run_v0` (có `outH`, `trace`). Luồng: H2D RGB A/B → frontend A, B (Phúc) → stage 4–6 → các kiểm tra như [v0_stitching.cpp:88-129](src/v0_stitching.cpp#L88-L129) với cùng thông báo lỗi → D2H panorama.
+- [ ] Viết `run_v1(...)` trong `src/gpu_pipeline.cu`, cùng chữ ký `run_v0` (có `outH`, `trace`). Luồng: H2D RGB A/B → frontend A, B (Phúc) → stage 4–6 → các kiểm tra như [v0_stitching.cpp:104-148](src/v0_stitching.cpp#L104-L148) với cùng thông báo lỗi → D2H panorama.
 - [ ] Đo bằng `GpuTimer` cho từng stage, H2D, D2H và end-to-end. Ghi rõ:
   - mỗi lần copy nhỏ giữa các stage được tính vào stage nào;
   - việc cấp phát nằm trong hay ngoài vùng đo (thống nhất với Hưng).
@@ -514,7 +556,7 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
 - `Keypoint*` và `Descriptor256*` nằm trên device.
 - Số phần tử hợp lệ nằm trong `int*` trên device; dung lượng tối đa `cfg::kMaxKeypoints`.
 - Thứ tự keypoint theo A4.
-- Descriptor 32 byte: bit `b` nằm ở byte `b/8`, vị trí `b%8`, như [v0_frontend.cpp:239](src/v0_frontend.cpp#L239).
+- Descriptor 32 byte: bit `b` nằm ở byte `b/8`, vị trí `b%8`, như [v0_frontend.cpp:223](src/v0_frontend.cpp#L223).
 - Thống nhất stream dùng và ai sở hữu buffer.
 
 **Với Hưng:**
