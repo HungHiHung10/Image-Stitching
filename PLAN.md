@@ -6,6 +6,39 @@
 >
 > Mục có nhãn **[Cần nhóm duyệt]** đụng tới baseline chung hoặc file do thành viên khác phụ trách. Những mục này phải được Phúc/Hưng đồng ý trước khi merge vào `main`.
 
+## Trạng thái Phần A (cập nhật 08/11/2026, nhánh `refactor/v0-baseline-lock`)
+
+| Mục | Commit | Trạng thái | Đã kiểm tra trên máy (Apple clang, libc++) |
+|---|---|---|---|
+| A.8 bước 0b `tools/compare_runs.py` | `dd021d4` | Xong | So một thư mục với chính nó → mã 0; thư mục bị sửa H/log/ảnh → mã 1, báo đúng từng mục. Nhánh thống kê pixel cần Pillow + numpy, chưa chạy |
+| A1 `pipeline_config.h` | `67b596f` | Xong | 8 cặp thử: H, panorama, log trùng từng byte với `main` |
+| A2 `hd_math.h` | `442181b` | Xong | Trùng từng byte với `main`; kiểm tra cú pháp device sm_75/host bằng clang CUDA qua; **chưa biên dịch bằng nvcc** |
+| A5 dữ liệu trung gian + `--dump-dir` | `34a1c95` | Xong | Có dump hay không đều trùng từng byte; file dump khớp log; thư mục không tồn tại → mã 1 |
+| A3 RNG splitmix64 | `ddc2937` | Xong | `ransac_sample` đúng phạm vi, không trùng, xác định, phân bố đều; 8 cặp thử H vẫn trùng từng byte |
+| A4 thứ tự keypoint + bảng BRIEF | `29a10c4` | Xong, **chờ Phúc duyệt** | Đánh chỉ số bảng đúng (trùng từng byte khi bảng mang giá trị libc++); đổi thứ tự làm match đổi ±1–3, sai số so với H đúng không đổi |
+| A6 giữ dòng log | — | Giữ nguyên | `compare_runs.py` đọc được mọi dòng log như trước |
+| A.8 bước 0 tag `midterm-v0` | — | **Chưa làm** | Cần Hưng tag trên `main` |
+
+Bộ thử trên máy gồm 8 cặp sinh từ `synthetic_GT.HEIC`: tịnh tiến, xoay 4°, phối cảnh, bù sáng, ép seam, >1500 keypoint, 3840×2160, và ảnh phẳng gây lỗi. Các cặp này đi qua mọi nhánh của V0, nhưng **không thay thế 12 cặp thật + synthetic trên Colab**.
+
+**Khác so với kế hoạch:**
+- A1 sửa cả hằng stage 1–3 trong `v0_frontend.cpp`, giá trị mặc định trong `versions.h` và danh sách `HEADERS` trong Makefile.
+- A5: `PipelineTrace` có thêm `descA/descB` để so descriptor từng bit (assignment 9.1); `BlendInfo` ghi cả `canvas_w/h`, `offset_x/y`.
+- A3: giới hạn 64 lần rút là hằng `hd::kRansacMaxDrawAttempts`.
+- A4: máy này chỉ có libc++, nên bảng được sinh bằng cách mô phỏng `std::normal_distribution<float>` của libstdc++. Generator `tools/gen_brief_pattern.cpp` dùng thư viện thật để đối chiếu trên Colab.
+- Theo yêu cầu, code mới không có comment, kể cả comment đầu file ghi tác giả/nguồn. Nguồn splitmix64 phải được trích dẫn trong notebook.
+
+**Việc còn lại phải chạy trên Colab** (sau khi push nhánh, tải dataset và chạy `prepare_dataset.py` như A.9):
+
+```bash
+g++ -O2 -std=c++14 tools/gen_brief_pattern.cpp -o /tmp/gen && /tmp/gen | diff - src/brief_pattern.h && echo "BRIEF khớp libstdc++"
+git checkout main && python tools/build.py && python tools/benchmark.py --runs 5 --warmup 1; cp -r outputs_v0 /content/v0_main
+git checkout refactor/v0-baseline-lock && python tools/build.py && python tools/benchmark.py --runs 5 --warmup 1; cp -r outputs_v0 /content/v0_branch
+python tools/compare_runs.py /content/v0_main /content/v0_branch
+```
+
+Kỳ vọng: nếu lệnh `diff` không in gì, khác biệt giữa hai lần chạy chỉ đến từ A3 (mẫu RANSAC) và thứ tự Top-K của A4. Ghi bảng khác biệt này vào notebook như mục A.0 yêu cầu.
+
 ## 0. Tóm tắt
 
 - **Vai trò:** back-end stages 4–6 (matching, RANSAC, warp/blend); chủ trì ghép frontend ↔ backend và **nghiệm thu V1 Basic CUDA**.
