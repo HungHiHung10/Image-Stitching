@@ -206,7 +206,7 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
                                    float inlier_thresh) {
     if (matches.size() < 4) return false;
 
-    std::mt19937 rng(42); // Deterministic seed
+    std::mt19937 rng(cfg::kRansacSeed); // Deterministic seed
     std::uniform_int_distribution<size_t> dist(0, matches.size() - 1);
 
     int max_inliers = 0;
@@ -267,7 +267,7 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
 
     // Refit with every inlier instead of retaining the four-point hypothesis.
     // A second collection updates the final consensus after least squares.
-    for (int pass=0; pass<2; ++pass) {
+    for (int pass=0; pass<cfg::kRefitPasses; ++pass) {
         std::vector<Point2f> src, dst;
         src.reserve(best_inliers.size()); dst.reserve(best_inliers.size());
         for (int index : best_inliers) {
@@ -381,8 +381,8 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
     // trigger a destructive colour correction.
     double sx[3] = {}, sy[3] = {}, sxx[3] = {}, sxy[3] = {};
     size_t exposure_samples = 0;
-    for (int py = 0; py < pano_h; py += 2) {
-        for (int px = 0; px < pano_w; px += 2) {
+    for (int py = 0; py < pano_h; py += cfg::kExposureStride) {
+        for (int px = 0; px < pano_w; px += cfg::kExposureStride) {
             float ax = px - offset_x, ay = py - offset_y;
             float a[3], b[3];
             Point2f pB = project_point(H_inv, ax, ay);
@@ -391,7 +391,8 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
             float mean_a=(a[0]+a[1]+a[2])/3.0f, mean_b=(b[0]+b[1]+b[2])/3.0f;
             float max_a=std::max(a[0],std::max(a[1],a[2]));
             float max_b=std::max(b[0],std::max(b[1],b[2]));
-            if (mean_a <= 20 || mean_b <= 20 || max_a >= 245 || max_b >= 245) continue;
+            if (mean_a <= cfg::kDarkMeanMax || mean_b <= cfg::kDarkMeanMax ||
+                max_a >= cfg::kSaturatedMin || max_b >= cfg::kSaturatedMin) continue;
             ++exposure_samples;
             for (int c=0;c<3;++c) {
                 sx[c]+=b[c]; sy[c]+=a[c]; sxx[c]+=b[c]*b[c]; sxy[c]+=b[c]*a[c];
@@ -399,20 +400,20 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
         }
     }
     double gain[3]={1,1,1}, bias[3]={0,0,0};
-    if (exposure_samples >= 1000) {
+    if (exposure_samples >= cfg::kMinExposureSamples) {
         double n=static_cast<double>(exposure_samples);
         for (int c=0;c<3;++c) {
             double denominator=n*sxx[c]-sx[c]*sx[c];
             if (std::abs(denominator)>1e-9) {
-                gain[c]=std::max(0.75,std::min(1.33,(n*sxy[c]-sx[c]*sy[c])/denominator));
-                bias[c]=std::max(-64.0,std::min(64.0,(sy[c]-gain[c]*sx[c])/n));
+                gain[c]=std::max(cfg::kGainMin,std::min(cfg::kGainMax,(n*sxy[c]-sx[c]*sy[c])/denominator));
+                bias[c]=std::max(-cfg::kBiasLimit,std::min(cfg::kBiasLimit,(sy[c]-gain[c]*sx[c])/n));
             }
         }
     }
     double raw_error=0, corrected_error=0;
     size_t error_samples=0;
-    for (int py = 0; py < pano_h; py += 2) {
-        for (int px = 0; px < pano_w; px += 2) {
+    for (int py = 0; py < pano_h; py += cfg::kExposureStride) {
+        for (int px = 0; px < pano_w; px += cfg::kExposureStride) {
             float ax=px-offset_x, ay=py-offset_y, a[3], b[3];
             Point2f pB=project_point(H_inv,ax,ay);
             if (!sample_bilinear(imgA,ax,ay,a) || !sample_bilinear(imgB,pB.x,pB.y,b)) continue;
@@ -423,8 +424,8 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
             error_samples+=3;
         }
     }
-    bool compensate_exposure=exposure_samples>=1000 && error_samples>0 &&
-        corrected_error < raw_error*0.90;
+    bool compensate_exposure=exposure_samples>=cfg::kMinExposureSamples && error_samples>0 &&
+        corrected_error < raw_error*cfg::kRequiredImprovement;
     if (!compensate_exposure) {
         for (int c=0;c<3;++c) { gain[c]=1.0; bias[c]=0.0; }
         corrected_error=raw_error;
@@ -440,7 +441,7 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
     // content.  In that case find a minimum-error top-to-bottom seam, then use
     // only a narrow feather band. This keeps foliage sharper than blending the
     // complete overlap. Parent directions need one signed byte per canvas pixel.
-    const bool use_seam = error_samples>3000 && overlap_mae>18.0;
+    const bool use_seam = error_samples>cfg::kMinSeamSamples && overlap_mae>cfg::kSeamMaeThreshold;
     log_message(LogLevel::Process) << "Blend: exposure="
         << (compensate_exposure ? "affine" : "unchanged")
         << ", overlap MAE=" << overlap_mae
@@ -459,11 +460,11 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
                 Point2f pB=project_point(H_inv,ax,ay);
                 if (!sample_bilinear(imgA,ax,ay,a) || !sample_bilinear(imgB,pB.x,pB.y,b)) continue;
                 adjust_b(b); any=true;
-                double pixel_cost=(std::abs(a[0]-b[0])+std::abs(a[1]-b[1])+std::abs(a[2]-b[2]))/3.0+1.0;
+                double pixel_cost=(std::abs(a[0]-b[0])+std::abs(a[1]-b[1])+std::abs(a[2]-b[2]))/3.0+cfg::kSeamPixelCostBias;
                 if (first_y<0) current[px]=pixel_cost;
                 else {
                     double best=inf; int direction=0;
-                    for (int d=-2;d<=2;++d) {
+                    for (int d=-cfg::kSeamWindow;d<=cfg::kSeamWindow;++d) {
                         int q=px+d;
                         if (q>=0 && q<pano_w && previous[q]<best) { best=previous[q]; direction=d; }
                     }
@@ -510,7 +511,7 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
                 // frame, so this also works for a projectively warped image B.
                 float wA, wB;
                 if (use_seam && seam_x[py]>=0) {
-                    const float band=24.0f;
+                    const float band=cfg::kSeamBand;
                     float alpha=std::max(0.0f,std::min(1.0f,
                         (seam_x[py]+band-px)/(2.0f*band)));
                     wA=alpha; wB=1.0f-alpha;

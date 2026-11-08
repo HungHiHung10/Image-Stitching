@@ -49,8 +49,8 @@ bool run_v0(const ImageRGB& imgA,
     // Stage 2: Keypoint Detection (FAST / Harris + NMS + Top-K)
     // ------------------------------------------------------------------------
     stage_timer.start();
-    std::vector<Keypoint> kptsA = v0_detect_keypoints(blurA, 1500);
-    std::vector<Keypoint> kptsB = v0_detect_keypoints(blurB, 1500);
+    std::vector<Keypoint> kptsA = v0_detect_keypoints(blurA, cfg::kMaxKeypoints);
+    std::vector<Keypoint> kptsB = v0_detect_keypoints(blurB, cfg::kMaxKeypoints);
     timings.stage2_keypoint_ms = stage_timer.stop();
     log_message(LogLevel::Process) << "Keypoints: A=" << kptsA.size()
                                    << ", B=" << kptsB.size() << "\n";
@@ -67,7 +67,7 @@ bool run_v0(const ImageRGB& imgA,
     // Stage 4: Feature Matching (Hamming Distance + Lowe's Ratio Test)
     // ------------------------------------------------------------------------
     stage_timer.start();
-    std::vector<Match> matches = v0_match_descriptors(descA, descB, 0.75f);
+    std::vector<Match> matches = v0_match_descriptors(descA, descB, cfg::kRatioThreshold);
     timings.stage4_matching_ms = stage_timer.stop();
     log_message(LogLevel::Process) << "Mutual ratio matches: " << matches.size() << "\n";
 
@@ -82,15 +82,18 @@ bool run_v0(const ImageRGB& imgA,
     stage_timer.start();
     Homography3x3 H_BtoA;
     std::vector<int> inliers;
-    bool ransac_ok = v0_estimate_homography_ransac(kptsA, kptsB, matches, H_BtoA, inliers, 1500, 3.0f);
+    bool ransac_ok = v0_estimate_homography_ransac(kptsA, kptsB, matches, H_BtoA, inliers,
+                                                 cfg::kRansacIters, cfg::kInlierThresholdPx);
     timings.stage5_ransac_ms = stage_timer.stop();
 
-    const size_t minimum_inliers = 8;
-    const bool weak_consensus = matches.empty() || inliers.size() * 5 < matches.size();
+    const size_t minimum_inliers = static_cast<size_t>(cfg::kMinInliers);
+    const size_t ratio_den = static_cast<size_t>(cfg::kMinInlierRatioDen);
+    const bool weak_consensus = matches.empty() || inliers.size() * ratio_den < matches.size();
     if (!ransac_ok || inliers.size() < minimum_inliers || weak_consensus) {
         log_message(LogLevel::Error) << "RANSAC consensus too weak: " << inliers.size()
                                      << "/" << matches.size() << " inliers (need >= "
-                                     << minimum_inliers << " and >= 20%)\n";
+                                     << minimum_inliers << " and >= "
+                                     << 100 / cfg::kMinInlierRatioDen << "%)\n";
         return false;
     }
     log_message(LogLevel::Success) << "RANSAC inliers: " << inliers.size()
@@ -123,7 +126,8 @@ bool run_v0(const ImageRGB& imgA,
         min_y = std::min(min_y, py); max_y = std::max(max_y, py);
     }
     double width = std::ceil(max_x - min_x + 1), height = std::ceil(max_y - min_y + 1);
-    if (width > 32768 || height > 32768 || width*height > 120000000) {
+    if (width > cfg::kMaxCanvasSide || height > cfg::kMaxCanvasSide ||
+        width*height > cfg::kMaxCanvasPixels) {
         log_message(LogLevel::Error) << "Implausible canvas; check input overlap and matches\n";
         return false;
     }
