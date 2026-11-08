@@ -12,25 +12,12 @@
 
 #include "versions.h"
 #include "logging.h"
+#include "hd_math.h"
 #include <cmath>
 #include <algorithm>
 #include <random>
 #include <cstring>
 #include <limits>
-
-// Helper: Hamming distance between two 256-bit binary descriptors
-static inline int hamming_distance_256(const uint8_t* a, const uint8_t* b) {
-    int dist = 0;
-    for (int i = 0; i < 32; ++i) {
-        uint8_t x = a[i] ^ b[i];
-        // Brian Kernighan's bit count algorithm
-        while (x) {
-            dist++;
-            x &= (x - 1);
-        }
-    }
-    return dist;
-}
 
 // ----------------------------------------------------------------------------
 // STAGE 4: FEATURE MATCHING (BRUTE-FORCE HAMMING & LOWE'S RATIO TEST)
@@ -48,7 +35,7 @@ std::vector<Match> v0_match_descriptors(const std::vector<Descriptor256>& descA,
     std::vector<int> second_distance(descA.size(), 256);
     for (size_t i = 0; i < descA.size(); ++i) {
         for (size_t j = 0; j < descB.size(); ++j) {
-            int d = hamming_distance_256(descA[i].data, descB[j].data);
+            int d = hd::hamming256(descA[i].data, descB[j].data);
             if (d < best_distance[i]) {
                 second_distance[i] = best_distance[i];
                 best_distance[i] = d;
@@ -65,7 +52,7 @@ std::vector<Match> v0_match_descriptors(const std::vector<Descriptor256>& descA,
     std::vector<int> reverse_best_distance(descB.size(), 256);
     for (size_t j = 0; j < descB.size(); ++j) {
         for (size_t i = 0; i < descA.size(); ++i) {
-            int d = hamming_distance_256(descB[j].data, descA[i].data);
+            int d = hd::hamming256(descB[j].data, descA[i].data);
             if (d < reverse_best_distance[j]) {
                 reverse_best_distance[j] = d;
                 reverse_best_a[j] = static_cast<int>(i);
@@ -90,111 +77,14 @@ std::vector<Match> v0_match_descriptors(const std::vector<Descriptor256>& descA,
 // STAGE 5: HOMOGRAPHY ESTIMATION VIA RANSAC 4-POINT DLT & REFINEMENT
 // ----------------------------------------------------------------------------
 
-static bool solve_linear_8(double A[8][8], double b[8], double x[8]) {
-    for (int col = 0; col < 8; ++col) {
-        int pivot = col;
-        double max_val = std::abs(A[col][col]);
-        for (int row = col + 1; row < 8; ++row) {
-            if (std::abs(A[row][col]) > max_val) {
-                max_val = std::abs(A[row][col]);
-                pivot = row;
-            }
-        }
-        if (max_val < 1e-12) return false;
-
-        if (pivot != col) {
-            for (int k = col; k < 8; ++k) std::swap(A[col][k], A[pivot][k]);
-            std::swap(b[col], b[pivot]);
-        }
-
-        double diag = A[col][col];
-        for (int k = col; k < 8; ++k) A[col][k] /= diag;
-        b[col] /= diag;
-
-        for (int row = 0; row < 8; ++row) {
-            if (row != col) {
-                double factor = A[row][col];
-                for (int k = col; k < 8; ++k) A[row][k] -= factor * A[col][k];
-                b[row] -= factor * b[col];
-            }
-        }
-    }
-    for (int i = 0; i < 8; ++i) x[i] = b[i];
-    return true;
+static bool invert_homography(const Homography3x3& H, Homography3x3& invH) {
+    return hd::invert_h(H.h, invH.h);
 }
 
-static void multiply_3x3(const double a[9], const double b[9], double out[9]) {
-    for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c < 3; ++c) {
-            out[3*r+c] = 0.0;
-            for (int k = 0; k < 3; ++k) out[3*r+c] += a[3*r+k] * b[3*k+c];
-        }
-    }
-}
-
-// Normalized least-squares DLT with h33 fixed to one. Normalization keeps the
-// 8x8 system well-conditioned at HD/4K pixel coordinates and also supports
-// the final refit from all RANSAC inliers.
-static bool solve_homography_points(const std::vector<Point2f>& src,
-                                    const std::vector<Point2f>& dst,
-                                    Homography3x3& outH) {
-    if (src.size() != dst.size() || src.size() < 4) return false;
-    double csx=0, csy=0, cdx=0, cdy=0;
-    for (size_t i=0; i<src.size(); ++i) {
-        csx += src[i].x; csy += src[i].y;
-        cdx += dst[i].x; cdy += dst[i].y;
-    }
-    double n = static_cast<double>(src.size());
-    csx/=n; csy/=n; cdx/=n; cdy/=n;
-    double src_mean=0, dst_mean=0;
-    for (size_t i=0; i<src.size(); ++i) {
-        src_mean += std::hypot(src[i].x-csx, src[i].y-csy);
-        dst_mean += std::hypot(dst[i].x-cdx, dst[i].y-cdy);
-    }
-    src_mean/=n; dst_mean/=n;
-    if (src_mean < 1e-9 || dst_mean < 1e-9) return false;
-    const double ss = std::sqrt(2.0)/src_mean;
-    const double sd = std::sqrt(2.0)/dst_mean;
-
-    double ata[8][8] = {};
-    double atb[8] = {};
-    for (size_t i=0; i<src.size(); ++i) {
-        double xs=ss*(src[i].x-csx), ys=ss*(src[i].y-csy);
-        double xd=sd*(dst[i].x-cdx), yd=sd*(dst[i].y-cdy);
-        double rows[2][8] = {
-            {xs,ys,1, 0,0,0, -xd*xs,-xd*ys},
-            {0,0,0, xs,ys,1, -yd*xs,-yd*ys}
-        };
-        double rhs[2] = {xd, yd};
-        for (int q=0; q<2; ++q) {
-            for (int r=0; r<8; ++r) {
-                atb[r] += rows[q][r]*rhs[q];
-                for (int c=0; c<8; ++c) ata[r][c] += rows[q][r]*rows[q][c];
-            }
-        }
-    }
-    double x[8];
-    if (!solve_linear_8(ata, atb, x)) return false;
-    double hn[9] = {x[0],x[1],x[2], x[3],x[4],x[5], x[6],x[7],1.0};
-    double ts[9] = {ss,0,-ss*csx, 0,ss,-ss*csy, 0,0,1};
-    double td_inv[9] = {1.0/sd,0,cdx, 0,1.0/sd,cdy, 0,0,1};
-    double temp[9], h[9];
-    multiply_3x3(hn, ts, temp);
-    multiply_3x3(td_inv, temp, h);
-    if (!std::isfinite(h[8]) || std::abs(h[8]) < 1e-12) return false;
-    for (int i=0; i<9; ++i) outH.h[i] = h[i]/h[8];
-    return true;
-}
-
-static bool invert_homography(const Homography3x3& H, Homography3x3& invH);
-
-// Project a point through Homography matrix
 static inline Point2f project_point(const Homography3x3& H, float x, float y) {
-    double wx = H.h[0] * x + H.h[1] * y + H.h[2];
-    double wy = H.h[3] * x + H.h[4] * y + H.h[5];
-    double wz = H.h[6] * x + H.h[7] * y + H.h[8];
-    if (std::abs(wz) < 1e-12) wz = 1e-12;
-    return Point2f(static_cast<float>(wx / wz), static_cast<float>(wy / wz));
+    float ox, oy;
+    hd::project_point(H.h, x, y, ox, oy);
+    return Point2f(ox, oy);
 }
 
 bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
@@ -219,14 +109,10 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
         result.reserve(matches.size());
         for (size_t k = 0; k < matches.size(); ++k) {
             const auto& m = matches[k];
-            Point2f pB(kptsB[m.trainIdx].x, kptsB[m.trainIdx].y);
-            Point2f pA(kptsA[m.queryIdx].x, kptsA[m.queryIdx].y);
-            Point2f pA_proj = project_point(H, pB.x, pB.y);
-            Point2f pB_proj = project_point(H_inv, pA.x, pA.y);
-            double fdx=pA_proj.x-pA.x, fdy=pA_proj.y-pA.y;
-            double bdx=pB_proj.x-pB.x, bdy=pB_proj.y-pB.y;
-            double symmetric_error = 0.5*(fdx*fdx+fdy*fdy+bdx*bdx+bdy*bdy);
-            if (std::isfinite(symmetric_error) && symmetric_error < thresh_sq)
+            double symmetric_error = hd::symmetric_error_sq(
+                H.h, H_inv.h, kptsA[m.queryIdx].x, kptsA[m.queryIdx].y,
+                kptsB[m.trainIdx].x, kptsB[m.trainIdx].y);
+            if (hd::is_finite(symmetric_error) && symmetric_error < thresh_sq)
                 result.push_back(static_cast<int>(k));
         }
         return result;
@@ -246,15 +132,17 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
             }
         }
 
-        std::vector<Point2f> src(4), dst(4);
+        float src[8], dst[8];
         for (int i = 0; i < 4; ++i) {
             const auto& m = matches[idxs[i]];
-            src[i] = Point2f(kptsB[m.trainIdx].x, kptsB[m.trainIdx].y); // B -> A
-            dst[i] = Point2f(kptsA[m.queryIdx].x, kptsA[m.queryIdx].y);
+            src[2*i] = kptsB[m.trainIdx].x;
+            src[2*i+1] = kptsB[m.trainIdx].y;
+            dst[2*i] = kptsA[m.queryIdx].x;
+            dst[2*i+1] = kptsA[m.queryIdx].y;
         }
 
         Homography3x3 H_candidate;
-        if (!solve_homography_points(src, dst, H_candidate)) continue;
+        if (!hd::dlt_fit(src, dst, 4, H_candidate.h)) continue;
         std::vector<int> current_inliers = collect_inliers(H_candidate);
 
         if (static_cast<int>(current_inliers.size()) > max_inliers) {
@@ -268,15 +156,17 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
     // Refit with every inlier instead of retaining the four-point hypothesis.
     // A second collection updates the final consensus after least squares.
     for (int pass=0; pass<cfg::kRefitPasses; ++pass) {
-        std::vector<Point2f> src, dst;
-        src.reserve(best_inliers.size()); dst.reserve(best_inliers.size());
+        std::vector<float> src, dst;
+        src.reserve(2 * best_inliers.size()); dst.reserve(2 * best_inliers.size());
         for (int index : best_inliers) {
             const auto& m = matches[index];
-            src.emplace_back(kptsB[m.trainIdx].x, kptsB[m.trainIdx].y);
-            dst.emplace_back(kptsA[m.queryIdx].x, kptsA[m.queryIdx].y);
+            src.push_back(kptsB[m.trainIdx].x);
+            src.push_back(kptsB[m.trainIdx].y);
+            dst.push_back(kptsA[m.queryIdx].x);
+            dst.push_back(kptsA[m.queryIdx].y);
         }
         Homography3x3 refined;
-        if (!solve_homography_points(src, dst, refined)) break;
+        if (!hd::dlt_fit(src.data(), dst.data(), static_cast<int>(best_inliers.size()), refined.h)) break;
         std::vector<int> refined_inliers = collect_inliers(refined);
         if (refined_inliers.size() < 4) break;
         bestH = refined;
@@ -289,52 +179,8 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
 // STAGE 6: WARPING & LINEAR FEATHERING BLENDING
 // ----------------------------------------------------------------------------
 
-// Invert 3x3 matrix
-static bool invert_homography(const Homography3x3& H, Homography3x3& invH) {
-    const double* m = H.h;
-    double det = m[0] * (m[4] * m[8] - m[5] * m[7]) -
-                 m[1] * (m[3] * m[8] - m[5] * m[6]) +
-                 m[2] * (m[3] * m[7] - m[4] * m[6]);
-
-    if (std::abs(det) < 1e-12) return false;
-    double inv_det = 1.0 / det;
-
-    invH.h[0] =  (m[4] * m[8] - m[5] * m[7]) * inv_det;
-    invH.h[1] = -(m[1] * m[8] - m[2] * m[7]) * inv_det;
-    invH.h[2] =  (m[1] * m[5] - m[2] * m[4]) * inv_det;
-    invH.h[3] = -(m[3] * m[8] - m[5] * m[6]) * inv_det;
-    invH.h[4] =  (m[0] * m[8] - m[2] * m[6]) * inv_det;
-    invH.h[5] = -(m[0] * m[5] - m[2] * m[3]) * inv_det;
-    invH.h[6] =  (m[3] * m[7] - m[4] * m[6]) * inv_det;
-    invH.h[7] = -(m[0] * m[7] - m[1] * m[6]) * inv_det;
-    invH.h[8] =  (m[0] * m[4] - m[1] * m[3]) * inv_det;
-    return true;
-}
-
-// Bilinear sampling from RGB image
 static inline bool sample_bilinear(const ImageRGB& img, float x, float y, float out_rgb[3]) {
-    if (x < 0.0f || x >= img.width - 1 || y < 0.0f || y >= img.height - 1) return false;
-
-    int x0 = static_cast<int>(x);
-    int y0 = static_cast<int>(y);
-    int x1 = x0 + 1;
-    int y1 = y0 + 1;
-
-    float dx = x - x0;
-    float dy = y - y0;
-    float w00 = (1.0f - dx) * (1.0f - dy);
-    float w10 = dx * (1.0f - dy);
-    float w01 = (1.0f - dx) * dy;
-    float w11 = dx * dy;
-
-    for (int c = 0; c < 3; ++c) {
-        float p00 = img.data[(y0 * img.width + x0) * 3 + c];
-        float p10 = img.data[(y0 * img.width + x1) * 3 + c];
-        float p01 = img.data[(y1 * img.width + x0) * 3 + c];
-        float p11 = img.data[(y1 * img.width + x1) * 3 + c];
-        out_rgb[c] = w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11;
-    }
-    return true;
+    return hd::sample_bilinear(img.data.data(), img.width, img.height, x, y, out_rgb);
 }
 
 ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
