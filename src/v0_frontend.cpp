@@ -11,10 +11,10 @@
 // ============================================================================
 
 #include "versions.h"
+#include "brief_pattern.h"
 #include <cmath>
 #include <algorithm>
 #include <cstring>
-#include <random>
 
 // ----------------------------------------------------------------------------
 // STAGE 1: PREPROCESSING (RGB TO GRAYSCALE & GAUSSIAN BLUR)
@@ -178,13 +178,14 @@ std::vector<Keypoint> v0_detect_keypoints(const ImageGray& gray, int max_keypoin
     }
 
     // Step 2.3: Top-K sorting and retention
-    if (static_cast<int>(keypoints.size()) > max_keypoints) {
-        std::partial_sort(keypoints.begin(), keypoints.begin() + max_keypoints, keypoints.end(),
-                          [](const Keypoint& a, const Keypoint& b) {
-                              return a.response > b.response;
-                          });
-        keypoints.resize(max_keypoints);
-    }
+    const size_t keep = std::min(keypoints.size(), static_cast<size_t>(std::max(max_keypoints, 0)));
+    std::partial_sort(keypoints.begin(), keypoints.begin() + keep, keypoints.end(),
+                      [](const Keypoint& a, const Keypoint& b) {
+                          if (a.response != b.response) return a.response > b.response;
+                          if (a.y != b.y) return a.y < b.y;
+                          return a.x < b.x;
+                      });
+    keypoints.resize(keep);
 
     return keypoints;
 }
@@ -193,27 +194,8 @@ std::vector<Keypoint> v0_detect_keypoints(const ImageGray& gray, int max_keypoin
 // STAGE 3: FEATURE DESCRIPTION (BRIEF 256-BIT BINARY DESCRIPTOR)
 // ----------------------------------------------------------------------------
 
-// Static Gaussian sampling pattern for 256 pairs in 31x31 patch (x1, y1, x2, y2)
-static bool g_brief_pattern_initialized = false;
-static int g_brief_dx1[256], g_brief_dy1[256], g_brief_dx2[256], g_brief_dy2[256];
-
-static void init_brief_pattern() {
-    if (g_brief_pattern_initialized) return;
-    std::mt19937 rng(cfg::kBriefSeed); // Deterministic seed for reproducible testing
-    std::normal_distribution<float> dist(0.0f, cfg::kBriefSigma); // sigma = 0.2 * patch_size
-
-    for (int i = 0; i < 256; ++i) {
-        g_brief_dx1[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
-        g_brief_dy1[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
-        g_brief_dx2[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
-        g_brief_dy2[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
-    }
-    g_brief_pattern_initialized = true;
-}
-
 std::vector<Descriptor256> v0_compute_descriptors(const ImageGray& gray,
                                                   const std::vector<Keypoint>& keypoints) {
-    init_brief_pattern();
     std::vector<Descriptor256> descriptors(keypoints.size());
     const int w = gray.width;
     const int h = gray.height;
@@ -234,8 +216,9 @@ std::vector<Descriptor256> v0_compute_descriptors(const ImageGray& gray,
 
         // Compute 256 binary intensity comparisons
         for (int b = 0; b < 256; ++b) {
-            int p1_val = gray.data[(cy + g_brief_dy1[b]) * w + (cx + g_brief_dx1[b])];
-            int p2_val = gray.data[(cy + g_brief_dy2[b]) * w + (cx + g_brief_dx2[b])];
+            const int8_t* pair = kBriefPattern[b];
+            int p1_val = gray.data[(cy + pair[1]) * w + (cx + pair[0])];
+            int p2_val = gray.data[(cy + pair[3]) * w + (cx + pair[2])];
             if (p1_val < p2_val) {
                 desc.data[b / 8] |= (1 << (b % 8));
             }
