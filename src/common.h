@@ -76,6 +76,28 @@ struct StageTimings {
     double total_pipeline_ms = 0.0;
 };
 
+struct BlendInfo {
+    bool exposure_applied = false;
+    double overlap_mae = 0.0;
+    bool seam_used = false;
+    double gain[3] = {1.0, 1.0, 1.0};
+    double bias[3] = {0.0, 0.0, 0.0};
+    int canvas_w = 0;
+    int canvas_h = 0;
+    float offset_x = 0.0f;
+    float offset_y = 0.0f;
+    std::vector<int> seam_x;
+};
+
+struct PipelineTrace {
+    std::vector<Keypoint> kptsA, kptsB;
+    std::vector<Descriptor256> descA, descB;
+    std::vector<Match> matches;
+    std::vector<int> inliers;
+    Homography3x3 H;
+    BlendInfo blend;
+};
+
 // 8. High-resolution CPU Timer
 struct CpuTimer {
     std::chrono::high_resolution_clock::time_point start_time;

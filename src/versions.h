@@ -45,7 +45,8 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
 // Stage 6: Inverse warp, bilinear interpolation, exposure compensation, adaptive seam/feather
 ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
                            const ImageRGB& imgB,
-                           const Homography3x3& H);
+                           const Homography3x3& H,
+                           BlendInfo* info = nullptr);
 
 
 // ----------------------------------------------------------------------------
@@ -57,7 +58,8 @@ bool run_v0(const ImageRGB& imgA,
             const ImageRGB& imgB,
             ImageRGB& panorama,
             StageTimings& timings,
-            Homography3x3* outH = nullptr);
+            Homography3x3* outH = nullptr,
+            PipelineTrace* trace = nullptr);
 
 // Future Version Prototypes (Midterm Plan / Final)
 // bool run_v1(const ImageRGB& imgA, const ImageRGB& imgB, ImageRGB& panorama, StageTimings& timings);
