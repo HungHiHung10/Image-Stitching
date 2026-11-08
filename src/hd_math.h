@@ -70,6 +70,34 @@ HD inline int hamming256(const uint8_t* a, const uint8_t* b) {
     return dist;
 }
 
+HD inline uint64_t splitmix64(uint64_t x) {
+    x += 0x9E3779B97F4A7C15ull;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+    return x ^ (x >> 31);
+}
+
+constexpr uint32_t kRansacMaxDrawAttempts = 64;
+
+HD inline bool ransac_sample(uint32_t seed, uint32_t iter, uint32_t n, int out[4]) {
+    uint32_t attempt = 0;
+    for (int k = 0; k < 4; ++k) {
+        for (;;) {
+            if (attempt >= kRansacMaxDrawAttempts) return false;
+            uint64_t key = (static_cast<uint64_t>(seed) << 32) ^
+                           (static_cast<uint64_t>(iter) << 8) ^ attempt++;
+            int index = static_cast<int>(splitmix64(key) % n);
+            bool duplicate = false;
+            for (int j = 0; j < k; ++j) duplicate = duplicate || (out[j] == index);
+            if (!duplicate) {
+                out[k] = index;
+                break;
+            }
+        }
+    }
+    return true;
+}
+
 HD inline bool solve_linear_8(double A[8][8], double b[8], double x[8]) {
     for (int col = 0; col < 8; ++col) {
         int pivot = col;

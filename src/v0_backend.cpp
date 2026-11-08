@@ -15,7 +15,6 @@
 #include "hd_math.h"
 #include <cmath>
 #include <algorithm>
-#include <random>
 #include <cstring>
 #include <limits>
 
@@ -96,9 +95,6 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
                                    float inlier_thresh) {
     if (matches.size() < 4) return false;
 
-    std::mt19937 rng(cfg::kRansacSeed); // Deterministic seed
-    std::uniform_int_distribution<size_t> dist(0, matches.size() - 1);
-
     int max_inliers = 0;
     const float thresh_sq = inlier_thresh * inlier_thresh;
 
@@ -120,17 +116,9 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
 
     for (int iter = 0; iter < max_iters; ++iter) {
         // Sample 4 unique random matches
-        size_t idxs[4];
-        for (int i = 0; i < 4; ++i) {
-            bool unique = false;
-            while (!unique) {
-                idxs[i] = dist(rng);
-                unique = true;
-                for (int j = 0; j < i; ++j) {
-                    if (idxs[i] == idxs[j]) { unique = false; break; }
-                }
-            }
-        }
+        int idxs[4];
+        if (!hd::ransac_sample(cfg::kRansacSeed, static_cast<uint32_t>(iter),
+                               static_cast<uint32_t>(matches.size()), idxs)) continue;
 
         float src[8], dst[8];
         for (int i = 0; i < 4; ++i) {
