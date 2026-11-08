@@ -19,9 +19,11 @@ bool run_v0(const ImageRGB& imgA,
             const ImageRGB& imgB,
             ImageRGB& panorama,
             StageTimings& timings,
-            Homography3x3* outH) {
+            Homography3x3* outH,
+            PipelineTrace* trace) {
     timings = StageTimings{};
     panorama = ImageRGB{};
+    if (trace) *trace = PipelineTrace{};
     for (const auto* image : {&imgA, &imgB}) {
         if (image->width <= 0 || image->height <= 0 || image->channels != 3 ||
             image->data.size() != size_t(image->width) * image->height * 3) {
@@ -54,6 +56,10 @@ bool run_v0(const ImageRGB& imgA,
     timings.stage2_keypoint_ms = stage_timer.stop();
     log_message(LogLevel::Process) << "Keypoints: A=" << kptsA.size()
                                    << ", B=" << kptsB.size() << "\n";
+    if (trace) {
+        trace->kptsA = kptsA;
+        trace->kptsB = kptsB;
+    }
 
     // ------------------------------------------------------------------------
     // Stage 3: Feature Description (BRIEF 256-bit Binary Descriptor)
@@ -62,6 +68,10 @@ bool run_v0(const ImageRGB& imgA,
     std::vector<Descriptor256> descA = v0_compute_descriptors(blurA, kptsA);
     std::vector<Descriptor256> descB = v0_compute_descriptors(blurB, kptsB);
     timings.stage3_descriptor_ms = stage_timer.stop();
+    if (trace) {
+        trace->descA = descA;
+        trace->descB = descB;
+    }
 
     // ------------------------------------------------------------------------
     // Stage 4: Feature Matching (Hamming Distance + Lowe's Ratio Test)
@@ -70,6 +80,7 @@ bool run_v0(const ImageRGB& imgA,
     std::vector<Match> matches = v0_match_descriptors(descA, descB, cfg::kRatioThreshold);
     timings.stage4_matching_ms = stage_timer.stop();
     log_message(LogLevel::Process) << "Mutual ratio matches: " << matches.size() << "\n";
+    if (trace) trace->matches = matches;
 
     if (matches.size() < 4) {
         log_message(LogLevel::Error) << "Insufficient feature matches: " << matches.size() << " (need >= 4)\n";
@@ -85,6 +96,10 @@ bool run_v0(const ImageRGB& imgA,
     bool ransac_ok = v0_estimate_homography_ransac(kptsA, kptsB, matches, H_BtoA, inliers,
                                                  cfg::kRansacIters, cfg::kInlierThresholdPx);
     timings.stage5_ransac_ms = stage_timer.stop();
+    if (trace) {
+        trace->inliers = inliers;
+        trace->H = H_BtoA;
+    }
 
     const size_t minimum_inliers = static_cast<size_t>(cfg::kMinInliers);
     const size_t ratio_den = static_cast<size_t>(cfg::kMinInlierRatioDen);
@@ -136,7 +151,7 @@ bool run_v0(const ImageRGB& imgA,
     // Stage 6: Inverse warp + bilinear + exposure compensation + adaptive seam/feather
     // ------------------------------------------------------------------------
     stage_timer.start();
-    panorama = v0_warp_and_blend(imgA, imgB, H_BtoA);
+    panorama = v0_warp_and_blend(imgA, imgB, H_BtoA, trace ? &trace->blend : nullptr);
     timings.stage6_warp_blend_ms = stage_timer.stop();
 
     timings.total_pipeline_ms = timer.stop();

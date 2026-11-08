@@ -185,8 +185,10 @@ static inline bool sample_bilinear(const ImageRGB& img, float x, float y, float 
 
 ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
                            const ImageRGB& imgB,
-                           const Homography3x3& H_BtoA) {
+                           const Homography3x3& H_BtoA,
+                           BlendInfo* info) {
     ImageRGB panorama;
+    if (info) *info = BlendInfo{};
 
     // 1. Calculate bounding box of the transformed Image B in Image A coordinates
     Point2f cornersB[4] = {
@@ -216,6 +218,12 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
     panorama.height = pano_h;
     panorama.channels = 3;
     panorama.data.assign(pano_w * pano_h * 3, 0);
+    if (info) {
+        info->canvas_w = pano_w;
+        info->canvas_h = pano_h;
+        info->offset_x = offset_x;
+        info->offset_y = offset_y;
+    }
 
     // Compute H_inv to project from panorama (Image A coords) back to Image B
     Homography3x3 H_inv;
@@ -380,5 +388,15 @@ ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
         }
     }
 
+    if (info) {
+        info->exposure_applied = compensate_exposure;
+        info->overlap_mae = overlap_mae;
+        info->seam_used = use_seam;
+        for (int c = 0; c < 3; ++c) {
+            info->gain[c] = gain[c];
+            info->bias[c] = bias[c];
+        }
+        info->seam_x = seam_x;
+    }
     return panorama;
 }
