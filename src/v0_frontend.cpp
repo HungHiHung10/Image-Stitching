@@ -44,9 +44,9 @@ ImageGray v0_gaussian_blur(const ImageGray& gray, float sigma) {
     if (w <= 0 || h <= 0) return blurred;
 
     // 1D Gaussian Kernel generation (size = 5)
-    const int kernel_radius = 2;
+    const int kernel_radius = cfg::kBlurRadius;
     const int kernel_size = 2 * kernel_radius + 1;
-    float kernel[5];
+    float kernel[2 * cfg::kBlurRadius + 1];
     float sum = 0.0f;
     for (int i = -kernel_radius; i <= kernel_radius; ++i) {
         float val = std::exp(-(i * i) / (2.0f * sigma * sigma));
@@ -93,7 +93,7 @@ std::vector<Keypoint> v0_detect_keypoints(const ImageGray& gray, int max_keypoin
     const int h = gray.height;
     // BRIEF uses a 31x31 patch. Detect only points that can later receive a
     // valid descriptor so keypoint and descriptor indices stay aligned.
-    const int descriptor_border = 16;
+    const int descriptor_border = cfg::kDescriptorBorder;
     if (w <= 2 * descriptor_border || h <= 2 * descriptor_border) return keypoints;
 
     // FAST-9 Circle Offsets (16 perimeter pixels relative to center)
@@ -101,7 +101,7 @@ std::vector<Keypoint> v0_detect_keypoints(const ImageGray& gray, int max_keypoin
         {0, 3}, {1, 3}, {2, 2}, {3, 1}, {3, 0}, {3, -1}, {2, -2}, {1, -3},
         {0, -3}, {-1, -3}, {-2, -2}, {-3, -1}, {-3, 0}, {-3, 1}, {-2, 2}, {-1, 3}
     };
-    const int threshold = 20; // Intensity difference threshold
+    const int threshold = cfg::kFastThreshold; // Intensity difference threshold
 
     std::vector<float> corner_scores(w * h, 0.0f);
 
@@ -199,14 +199,14 @@ static int g_brief_dx1[256], g_brief_dy1[256], g_brief_dx2[256], g_brief_dy2[256
 
 static void init_brief_pattern() {
     if (g_brief_pattern_initialized) return;
-    std::mt19937 rng(14120); // Deterministic seed for reproducible testing
-    std::normal_distribution<float> dist(0.0f, 6.0f); // sigma = 0.2 * patch_size
+    std::mt19937 rng(cfg::kBriefSeed); // Deterministic seed for reproducible testing
+    std::normal_distribution<float> dist(0.0f, cfg::kBriefSigma); // sigma = 0.2 * patch_size
 
     for (int i = 0; i < 256; ++i) {
-        g_brief_dx1[i] = std::min(std::max(static_cast<int>(dist(rng)), -15), 15);
-        g_brief_dy1[i] = std::min(std::max(static_cast<int>(dist(rng)), -15), 15);
-        g_brief_dx2[i] = std::min(std::max(static_cast<int>(dist(rng)), -15), 15);
-        g_brief_dy2[i] = std::min(std::max(static_cast<int>(dist(rng)), -15), 15);
+        g_brief_dx1[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
+        g_brief_dy1[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
+        g_brief_dx2[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
+        g_brief_dy2[i] = std::min(std::max(static_cast<int>(dist(rng)), -cfg::kBriefPatchRadius), cfg::kBriefPatchRadius);
     }
     g_brief_pattern_initialized = true;
 }
@@ -227,7 +227,8 @@ std::vector<Descriptor256> v0_compute_descriptors(const ImageGray& gray,
 
         // Detection already enforces this border. Keep the guard for callers
         // that construct keypoints themselves.
-        if (cx < 16 || cx >= w - 16 || cy < 16 || cy >= h - 16) {
+        if (cx < cfg::kDescriptorBorder || cx >= w - cfg::kDescriptorBorder ||
+            cy < cfg::kDescriptorBorder || cy >= h - cfg::kDescriptorBorder) {
             continue;
         }
 

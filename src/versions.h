@@ -1,6 +1,7 @@
 // Original project interfaces/utilities; no external code adaptation.
 #pragma once
 #include "common.h"
+#include "pipeline_config.h"
 
 // ============================================================================
 // CSC14120 - Parallel Programming | Final Project: Panorama Image Stitching
@@ -14,10 +15,10 @@
 
 // Stage 1: Preprocessing
 ImageGray v0_rgb_to_gray(const ImageRGB& img);
-ImageGray v0_gaussian_blur(const ImageGray& gray, float sigma = 1.2f);
+ImageGray v0_gaussian_blur(const ImageGray& gray, float sigma = cfg::kBlurSigma);
 
 // Stage 2: Keypoint Detection (FAST / Harris + NMS + Top-K)
-std::vector<Keypoint> v0_detect_keypoints(const ImageGray& gray, int max_keypoints = 1500);
+std::vector<Keypoint> v0_detect_keypoints(const ImageGray& gray, int max_keypoints = cfg::kMaxKeypoints);
 
 // Stage 3: Feature Description (BRIEF 256-bit binary descriptor)
 std::vector<Descriptor256> v0_compute_descriptors(const ImageGray& gray, const std::vector<Keypoint>& keypoints);
@@ -30,7 +31,7 @@ std::vector<Descriptor256> v0_compute_descriptors(const ImageGray& gray, const s
 // Stage 4: Feature Matching (Brute-Force Hamming + Lowe's ratio test)
 std::vector<Match> v0_match_descriptors(const std::vector<Descriptor256>& descA,
                                        const std::vector<Descriptor256>& descB,
-                                       float ratio_threshold = 0.75f);
+                                       float ratio_threshold = cfg::kRatioThreshold);
 
 // Stage 5: Homography Estimation via RANSAC 4-point DLT & inlier refinement
 bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
@@ -38,8 +39,8 @@ bool v0_estimate_homography_ransac(const std::vector<Keypoint>& kptsA,
                                    const std::vector<Match>& matches,
                                    Homography3x3& bestH,
                                    std::vector<int>& inlier_indices,
-                                   int max_iters = 1500,
-                                   float inlier_thresh = 3.0f);
+                                   int max_iters = cfg::kRansacIters,
+                                   float inlier_thresh = cfg::kInlierThresholdPx);
 
 // Stage 6: Inverse warp, bilinear interpolation, exposure compensation, adaptive seam/feather
 ImageRGB v0_warp_and_blend(const ImageRGB& imgA,
