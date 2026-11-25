@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 #ifdef __CUDACC__
 #define HD __host__ __device__
@@ -21,6 +22,30 @@ HD inline double abs_of(double v) {
     return fabs(v);
 #else
     return std::fabs(v);
+#endif
+}
+
+HD inline float abs_of(float v) {
+#ifdef __CUDA_ARCH__
+    return fabsf(v);
+#else
+    return std::fabs(v);
+#endif
+}
+
+HD inline float ceil_of(float v) {
+#ifdef __CUDA_ARCH__
+    return ceilf(v);
+#else
+    return std::ceil(v);
+#endif
+}
+
+HD inline double infinity_of() {
+#ifdef __CUDA_ARCH__
+    return __longlong_as_double(0x7ff0000000000000LL);
+#else
+    return std::numeric_limits<double>::infinity();
 #endif
 }
 
