@@ -82,10 +82,7 @@ bool run_v0(const ImageRGB& imgA,
     log_message(LogLevel::Process) << "Mutual ratio matches: " << matches.size() << "\n";
     if (trace) trace->matches = matches;
 
-    if (matches.size() < 4) {
-        log_message(LogLevel::Error) << "Insufficient feature matches: " << matches.size() << " (need >= 4)\n";
-        return false;
-    }
+    if (!check_match_count(matches.size())) return false;
 
     // ------------------------------------------------------------------------
     // Stage 5: Homography Estimation (RANSAC 4-point DLT)
@@ -101,20 +98,46 @@ bool run_v0(const ImageRGB& imgA,
         trace->H = H_BtoA;
     }
 
+    if (!check_ransac_consensus(ransac_ok, inliers.size(), matches.size())) return false;
+    if (!check_canvas_bounds(H_BtoA, imgA.width, imgA.height, imgB.width, imgB.height)) return false;
+
+    // ------------------------------------------------------------------------
+    // Stage 6: Inverse warp + bilinear + exposure compensation + adaptive seam/feather
+    // ------------------------------------------------------------------------
+    stage_timer.start();
+    panorama = v0_warp_and_blend(imgA, imgB, H_BtoA, trace ? &trace->blend : nullptr);
+    timings.stage6_warp_blend_ms = stage_timer.stop();
+
+    timings.total_pipeline_ms = timer.stop();
+    if (panorama.data.empty()) return false;
+    if (outH) *outH = H_BtoA;
+    return true;
+}
+
+bool check_match_count(size_t match_count) {
+    if (match_count >= 4) return true;
+    log_message(LogLevel::Error) << "Insufficient feature matches: " << match_count << " (need >= 4)\n";
+    return false;
+}
+
+bool check_ransac_consensus(bool ransac_ok, size_t inlier_count, size_t match_count) {
     const size_t minimum_inliers = static_cast<size_t>(cfg::kMinInliers);
     const size_t ratio_den = static_cast<size_t>(cfg::kMinInlierRatioDen);
-    const bool weak_consensus = matches.empty() || inliers.size() * ratio_den < matches.size();
-    if (!ransac_ok || inliers.size() < minimum_inliers || weak_consensus) {
-        log_message(LogLevel::Error) << "RANSAC consensus too weak: " << inliers.size()
-                                     << "/" << matches.size() << " inliers (need >= "
+    const bool weak_consensus = match_count == 0 || inlier_count * ratio_den < match_count;
+    if (!ransac_ok || inlier_count < minimum_inliers || weak_consensus) {
+        log_message(LogLevel::Error) << "RANSAC consensus too weak: " << inlier_count
+                                     << "/" << match_count << " inliers (need >= "
                                      << minimum_inliers << " and >= "
                                      << 100 / cfg::kMinInlierRatioDen << "%)\n";
         return false;
     }
-    log_message(LogLevel::Success) << "RANSAC inliers: " << inliers.size()
-                                   << "/" << matches.size() << "\n";
+    log_message(LogLevel::Success) << "RANSAC inliers: " << inlier_count
+                                   << "/" << match_count << "\n";
+    return true;
+}
 
-    // Validate the projected rectangle before backend canvas allocation.
+bool check_canvas_bounds(const Homography3x3& H_BtoA, int width_a, int height_a,
+                         int width_b, int height_b) {
     const double* matrix = H_BtoA.h;
     double determinant = matrix[0]*(matrix[4]*matrix[8]-matrix[5]*matrix[7])
                        - matrix[1]*(matrix[3]*matrix[8]-matrix[5]*matrix[6])
@@ -123,11 +146,11 @@ bool run_v0(const ImageRGB& imgA,
         log_message(LogLevel::Error) << "Singular homography\n";
         return false;
     }
-    double min_x = 0, min_y = 0, max_x = imgA.width - 1, max_y = imgA.height - 1;
+    double min_x = 0, min_y = 0, max_x = width_a - 1, max_y = height_a - 1;
     double first_z = 0;
     for (int corner = 0; corner < 4; ++corner) {
-        double x = (corner & 1) ? imgB.width - 1 : 0;
-        double y = (corner & 2) ? imgB.height - 1 : 0;
+        double x = (corner & 1) ? width_b - 1 : 0;
+        double y = (corner & 2) ? height_b - 1 : 0;
         const auto& h = H_BtoA.h;
         double z = h[6]*x + h[7]*y + h[8];
         if (corner == 0) first_z = z;
@@ -146,16 +169,5 @@ bool run_v0(const ImageRGB& imgA,
         log_message(LogLevel::Error) << "Implausible canvas; check input overlap and matches\n";
         return false;
     }
-
-    // ------------------------------------------------------------------------
-    // Stage 6: Inverse warp + bilinear + exposure compensation + adaptive seam/feather
-    // ------------------------------------------------------------------------
-    stage_timer.start();
-    panorama = v0_warp_and_blend(imgA, imgB, H_BtoA, trace ? &trace->blend : nullptr);
-    timings.stage6_warp_blend_ms = stage_timer.stop();
-
-    timings.total_pipeline_ms = timer.stop();
-    if (panorama.data.empty()) return false;
-    if (outH) *outH = H_BtoA;
     return true;
 }
