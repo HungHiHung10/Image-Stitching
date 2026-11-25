@@ -2,25 +2,27 @@
 
 > Nhóm 22 · CSC14120 Lập trình song song · Lập ngày 08/11/2026 trên nền `main` @ `39b4764`.
 >
-> Đây là **kế hoạch**, chưa mục nào được thực hiện hay kiểm chứng. Chỉ tick ô khi đã có mã, output kiểm tra và bằng chứng tương ứng.
+> Tiến độ thực tế ghi ở các mục **Trạng thái** ngay dưới đây. Từ mục 0 trở đi là kế hoạch gốc; chỗ nào thiết kế đã đổi thì có ghi chú tại chỗ. Chỉ tick ô khi đã có mã, output kiểm tra và bằng chứng tương ứng.
 >
 > Mục có nhãn **[Cần nhóm duyệt]** đụng tới baseline chung hoặc file do thành viên khác phụ trách. Những mục này phải được Phúc/Hưng đồng ý trước khi merge vào `main`.
 
 ## Trạng thái Phần A (cập nhật 25/11/2026, nhánh `refactor/v0-baseline-lock`)
 
-**Kết luận:** Phần A đã xong và đã được kiểm tra qua 2 lượt trên Colab (Tesla T4, nvcc 13.0, g++ 13.3, Python 3.13). Nhánh đã push lên GitHub ngày 08/11/2026; còn mở PR. Việc duy nhất chặn merge là Phúc duyệt A4. Tag `midterm-v0` đặt vào commit `39b4764`, và vì `main` chưa đổi kể từ khi tách nhánh nên tag có thể đặt trước hay sau khi merge.
+**Kết luận:** Phần A đã xong và đã được kiểm tra qua 2 lượt trên Colab (Tesla T4, nvcc 13.0, g++ 13.3, Python 3.13). Nhánh đã push lên GitHub ngày 08/11/2026 và đã mở PR vào `main` ngày 25/11/2026. Việc duy nhất chặn merge là Phúc duyệt A4. Nên merge bằng *Create a merge commit* (không squash hay rebase), vì mục này và nhánh Phần B tham chiếu mã commit của nhánh. Tag `midterm-v0` đặt vào commit `39b4764`, và vì `main` chưa đổi kể từ khi tách nhánh nên tag có thể đặt trước hay sau khi merge.
 
 | Mục | Commit | Trạng thái |
 |---|---|---|
-| `PLAN.md` | `930d6eb` | Xong |
-| A.8 bước 0b `tools/compare_runs.py` | `dd021d4` | Xong |
-| A1 `pipeline_config.h` | `67b596f` | Xong |
-| A2 `hd_math.h` | `442181b`, sửa ở `9b20fb4` | Xong |
-| A5 dữ liệu trung gian + `--dump-dir` | `34a1c95` | Xong |
-| A3 RNG splitmix64 | `ddc2937` | Xong |
-| A4 thứ tự keypoint + bảng BRIEF | `29a10c4` | Xong, **chờ Phúc duyệt** |
+| `PLAN.md` | `6659c03` | Xong |
+| A.8 bước 0b `tools/compare_runs.py` | `d00e314` | Xong |
+| A1 `pipeline_config.h` | `d547f95` | Xong |
+| A2 `hd_math.h` | `acb2e4f`, sửa ở `4fcd8a5` | Xong |
+| A5 dữ liệu trung gian + `--dump-dir` | `e3034d2` | Xong |
+| A3 RNG splitmix64 | `5803e2f` | Xong |
+| A4 thứ tự keypoint + bảng BRIEF | `ce188ab` | Xong, **chờ Phúc duyệt** |
 | A6 giữ dòng log | — | Giữ nguyên |
 | A.8 bước 0 tag `midterm-v0` | — | **Chưa làm**, cần Hưng tag commit `39b4764` |
+
+Ngày 25/11/2026 lịch sử nhánh được viết lại để sửa commit message; nội dung file của từng commit không đổi. Vì vậy mã commit trong bảng này khác mã ghi trong log kiểm tra ở `verify_partA/results/`.
 
 ### Kết quả kiểm tra trên Colab
 
@@ -42,7 +44,7 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 
 ### Phát hiện cần nhóm biết
 
-1. **`hypot`:** ở lượt 1, `hd::dlt_fit` trên GPU lệch CPU ở 2.917/8.107 trường hợp dù đã `--fmad=false`, vì `hypot` của CUDA và glibc làm tròn khác nhau (lệch 2.298/8.192 lần gọi). Commit `9b20fb4` thay bằng `sqrt(dx*dx + dy*dy)`, và lượt 2 lệch 0. Quy tắc rút ra: hàm `HD` chỉ dùng `+ − × ÷` và `sqrt`; không thêm `-march=native` hay `-ffast-math` vào build V0.
+1. **`hypot`:** ở lượt 1, `hd::dlt_fit` trên GPU lệch CPU ở 2.917/8.107 trường hợp dù đã `--fmad=false`, vì `hypot` của CUDA và glibc làm tròn khác nhau (lệch 2.298/8.192 lần gọi). Commit `4fcd8a5` thay bằng `sqrt(dx*dx + dy*dy)`, và lượt 2 lệch 0. Quy tắc rút ra: hàm `HD` chỉ dùng `+ − × ÷` và `sqrt`; không thêm `-march=native` hay `-ffast-math` vào build V0.
 2. **FMA:** khi để FMA mặc định, `dlt_fit` lệch ở mọi trường hợp, `sample_bilinear` lệch 3.825/7.025 điểm, `sqrt_sum` lệch 34 lần. Vì vậy mọi bản GPU phải build với `--fmad=false` (mục 6).
 3. **A3/A4 làm đổi kết quả ở các cặp ít inlier.** Lượt 2 cho đúng số liệu của lượt 1, nghĩa là kết quả xác định; nó chỉ đổi theo chuỗi mẫu RANSAC và thứ tự keypoint. MAE vùng chồng lấp giảm nhẹ hoặc giữ nguyên, không thấy dấu hiệu chất lượng kém đi. Panorama của V0 Final sẽ khác Midterm ở các cặp có H lệch dưới đây, và notebook Final phải nêu rõ điều này.
 
@@ -70,7 +72,7 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 ### Khác so với kế hoạch
 
 - A1 sửa cả hằng stage 1–3 trong `v0_frontend.cpp`, giá trị mặc định trong `versions.h` và danh sách `HEADERS` trong Makefile.
-- A2: `dlt_fit` dùng `sqrt(dx*dx + dy*dy)` thay `hypot` (commit `9b20fb4`, phát hiện 1).
+- A2: `dlt_fit` dùng `sqrt(dx*dx + dy*dy)` thay `hypot` (commit `4fcd8a5`, phát hiện 1).
 - A5: `PipelineTrace` có thêm `descA/descB` để so descriptor từng bit (assignment 9.1); `BlendInfo` ghi cả `canvas_w/h`, `offset_x/y`.
 - A3: giới hạn 64 lần rút là hằng `hd::kRansacMaxDrawAttempts`.
 - A4: bảng BRIEF được sinh bằng cách mô phỏng `std::normal_distribution<float>` của libstdc++; Colab đã xác nhận trùng 256/256 hàng. Generator `tools/gen_brief_pattern.cpp` sinh lại bảng bằng thư viện thật.
@@ -79,7 +81,7 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 ### Việc còn lại để đóng Phần A
 
 - [x] TV1 push nhánh (08/11/2026).
-- [ ] TV1 mở PR vào `main`, kèm tóm tắt mục này.
+- [x] TV1 mở PR vào `main`, kèm tóm tắt mục này (25/11/2026).
 - [ ] Phúc duyệt A4 (`v0_frontend.cpp`, `brief_pattern.h`).
 - [ ] Hưng tag `midterm-v0` vào commit `39b4764`, và duyệt các thay đổi ở `common.h`, `versions.h`, `main.cu`, Makefile.
 - [ ] Sau khi merge: Hưng chạy lại benchmark V0 cho notebook Final. Notebook ghi rõ V0 Final khác V0 Midterm ở A3/A4 (bảng ở phát hiện 3) và trích dẫn splitmix64 (Steele, Lea, Flood, OOPSLA 2014) ở hai nơi: mục 3 stage 5, chỗ mô tả RANSAC, và mục References.
@@ -87,7 +89,7 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 ## 0. Tóm tắt
 
 - **Vai trò:** back-end stages 4–6 (matching, RANSAC, warp/blend); chủ trì ghép frontend ↔ backend và **nghiệm thu V1 Basic CUDA**.
-- **Hiện trạng:** V0 chạy được 12/12 cặp và synthetic đạt. Repo **chưa có dòng CUDA nào**.
+- **Hiện trạng lúc lập kế hoạch (08/11/2026):** V0 chạy được 12/12 cặp và synthetic đạt. Repo **chưa có dòng CUDA nào**.
 - **Việc đầu tiên (Phần A):** khóa baseline V0 để V1 có thể cho kết quả giống V0:
   - tách tham số ra một chỗ;
   - CPU/GPU dùng chung một bản mã cho các hàm toán nhỏ;
@@ -114,7 +116,7 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 | M4 V3 | Review phụ thuộc stream/event phía backend của Hưng |
 | M5 Nộp | Notebook: mục 5 (V1), mục 2 (cùng Phúc), mục 3 phần stage 4–6; góp gallery, kết luận, references; slide và demo backend |
 
-## 3. Hiện trạng so với phần việc
+## 3. Hiện trạng so với phần việc (lúc lập kế hoạch, 08/11/2026)
 
 | Hạng mục | Hiện có | Còn thiếu |
 |---|---|---|
@@ -147,7 +149,7 @@ Commit `37b72fe` (23/10) bổ sung cho backend: mutual cross-check, DLT chuẩn 
 | # | Thay đổi | File | Đổi kết quả V0? | Duyệt |
 |---|---|---|---|---|
 | A1 | Gom tham số vào một header cấu hình | `src/pipeline_config.h` (mới), [v0_stitching.cpp](src/v0_stitching.cpp), [v0_backend.cpp](src/v0_backend.cpp) | Không | [Cần nhóm duyệt]: header dùng chung |
-| A2 | Tách các hàm toán dùng chung CPU/GPU | `src/hd_math.h` (mới), [v0_backend.cpp](src/v0_backend.cpp) | Gần như không: bản tách `442181b` trùng từng byte; bản sửa `hypot` `9b20fb4` làm H của `small_site3_custom` lệch 6e-12 px, log và panorama vẫn trùng | TV1 |
+| A2 | Tách các hàm toán dùng chung CPU/GPU | `src/hd_math.h` (mới), [v0_backend.cpp](src/v0_backend.cpp) | Gần như không: bản tách `acb2e4f` trùng từng byte; bản sửa `hypot` `4fcd8a5` làm H của `small_site3_custom` lệch 6e-12 px, log và panorama vẫn trùng | TV1 |
 | A3 | Thay RNG của RANSAC | `src/hd_math.h`, [v0_backend.cpp](src/v0_backend.cpp) | **Có**: mẫu, inlier, H | [Cần nhóm duyệt] |
 | A4 | Thứ tự keypoint xác định | [v0_frontend.cpp](src/v0_frontend.cpp) (của Phúc) | **Có**: thứ tự keypoint; tập keypoint ở biên Top-K; danh sách match, kể cả khi không cắt Top-K (phát hiện 3) | [Cần nhóm duyệt]; Phúc sửa hoặc duyệt |
 | A5 | Xuất dữ liệu trung gian để đối chiếu | [versions.h](src/versions.h), [common.h](src/common.h), [v0_backend.cpp](src/v0_backend.cpp), [main.cu](src/main.cu) | Không | [Cần nhóm duyệt]: giao diện của Hưng |
@@ -241,7 +243,7 @@ Quy tắc khi viết:
 - **Giữ đúng thứ tự phép tính và các chỗ ép kiểu** như V0, gồm: ép `float` trong `project_point` (nay ở [hd_math.h:229-236](src/hd_math.h#L229-L236)) và thứ tự tính tâm → khoảng cách trung bình → cộng dồn ATA (nay ở [hd_math.h:185-207](src/hd_math.h#L185-L207)).
 - `solve_homography_points` trong V0 đổi sang nhận con trỏ + số phần tử. `sample_bilinear` nhận con trỏ dữ liệu ảnh thay vì `ImageRGB`.
 
-**Kiểm tra:** output trùng từng byte với mốc (A.8 bước 2). Không cần thay đổi cờ biên dịch. Riêng commit `9b20fb4` (bỏ `hypot`) cố ý đổi kết quả rất nhỏ; xem phát hiện 1 ở mục Trạng thái.
+**Kiểm tra:** output trùng từng byte với mốc (A.8 bước 2). Không cần thay đổi cờ biên dịch. Riêng commit `4fcd8a5` (bỏ `hypot`) cố ý đổi kết quả rất nhỏ; xem phát hiện 1 ở mục Trạng thái.
 
 ## A3 — RNG của RANSAC dùng chung CPU/GPU [Cần nhóm duyệt]
 
@@ -414,8 +416,9 @@ Trên macOS chỉ biên dịch được V0: `cd src && make cpu`. Để chuẩn 
 
 ## B.1 M0 — Chốt baseline (= Phần A + giao diện)
 
-- [ ] Gửi nhóm đề xuất A1–A5, mục 5 (giao diện) và mục 6 (quyết định).
-- [ ] Thực hiện A.8 bước 0 → 5.
+- [x] Gửi nhóm đề xuất A1–A5 qua PR Phần A (25/11/2026).
+- [ ] Thống nhất với Phúc và Hưng mục 5 (giao diện) và mục 6 (quyết định).
+- [ ] Thực hiện A.8 bước 0 → 5: bước 0b → 5 đã xong (mục Trạng thái Phần A), còn bước 0 (Hưng tag `midterm-v0`).
 - [ ] **Xong khi:** V0 mới chạy 12/12 cặp, synthetic đạt, giao diện mục 5 đã thống nhất bằng văn bản.
 
 ## B.2 M1 — Kernel stages 4–6
