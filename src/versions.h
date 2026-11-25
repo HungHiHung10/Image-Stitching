@@ -61,6 +61,11 @@ bool run_v0(const ImageRGB& imgA,
             Homography3x3* outH = nullptr,
             PipelineTrace* trace = nullptr);
 
+bool check_match_count(size_t match_count);
+bool check_ransac_consensus(bool ransac_ok, size_t inlier_count, size_t match_count);
+bool check_canvas_bounds(const Homography3x3& H_BtoA, int width_a, int height_a,
+                         int width_b, int height_b);
+
 // Future Version Prototypes (Midterm Plan / Final)
 // bool run_v1(const ImageRGB& imgA, const ImageRGB& imgB, ImageRGB& panorama, StageTimings& timings);
 // bool run_v2(const ImageRGB& imgA, const ImageRGB& imgB, ImageRGB& panorama, StageTimings& timings);
