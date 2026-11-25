@@ -86,6 +86,69 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 - [ ] Hưng tag `midterm-v0` vào commit `39b4764`, và duyệt các thay đổi ở `common.h`, `versions.h`, `main.cu`, Makefile.
 - [ ] Sau khi merge: Hưng chạy lại benchmark V0 cho notebook Final. Notebook ghi rõ V0 Final khác V0 Midterm ở A3/A4 (bảng ở phát hiện 3) và trích dẫn splitmix64 (Steele, Lea, Flood, OOPSLA 2014) ở hai nơi: mục 3 stage 5, chỗ mô tả RANSAC, và mục References.
 
+## Trạng thái Phần B (cập nhật 25/11/2026, nhánh `feat/v1-basic-cuda`)
+
+**Kết luận:** M1 (kernel stage 4–6) và chương trình kiểm tra độc lập B.3 đã viết xong và đạt mọi bước kiểm tra chạy được trên máy Mac: lint CUDA bằng clang (host và `sm_75`), giả lập kernel trên CPU so với V0, V0 sau refactor trùng từng byte với nhánh Phần A. **Chưa chạy trên GPU thật**: cần lượt Colab 1 bằng notebook `verify_partB/verify_partB.ipynb` (ngoài repo). Chưa làm M2 (`run_v1`), vì phần này cần frontend GPU của Phúc và CLI `--version 1` của Hưng.
+
+| Mục | File | Trạng thái |
+|---|---|---|
+| Quy tắc từng phần tử dùng chung CPU/GPU (matching, inlier, canvas, exposure, seam, blend) | `src/hd_backend.h` (mới), `src/hd_math.h` | Xong |
+| V0 gọi các hàm dùng chung, kết quả không đổi | `src/v0_backend.cpp` | Xong, trùng từng byte trên máy (5 cặp); chờ Colab (12 cặp + synthetic) |
+| Tách 3 bước kiểm tra khỏi `run_v0` để V1 dùng lại, log giữ nguyên | `src/v0_stitching.cpp`, `src/versions.h` | Xong, [Cần nhóm duyệt]: file của Hưng |
+| Buffer RAII tối thiểu | `src/device_buffer.cuh` (mới) | Xong; Hưng có thể gộp vào `gpu_buffers.cuh` |
+| Kernel stage 4–6 + lớp `GpuBackend` | `src/gpu_backend.cuh`, `src/gpu_backend.cu` (mới) | Xong, chờ GPU thật |
+| Kiểm tra độc lập B.3 | `src/tests/test_backend.cu` (mới) | Xong, chờ GPU thật |
+| Build `make test-backend` (`--fmad=false -arch=sm_75`), bỏ binary khỏi Git | `src/Makefile`, `.gitignore` | Xong, [Cần nhóm duyệt]: file của Hưng |
+
+### Mapping thread/block đã cài
+
+| Stage | Kernel | Mapping |
+|---|---|---|
+| 4 | `match_forward_kernel` / `match_reverse_kernel` | 1 thread cho 1 descriptor A (hoặc B), duyệt toàn bộ ảnh kia bằng `hd::hamming256` (8 × `__popc`) |
+| 4 | `match_flag_kernel` → `compact_matches_kernel` | 1 thread cho 1 A ghi cờ; 1 block 1024 thread prefix sum có chia đoạn, ghi match theo `queryIdx` tăng dần |
+| 5 | `gather_points_kernel` | 1 thread cho 1 match, gom tọa độ B (nguồn) và A (đích) |
+| 5 | `hypothesis_kernel` | 1 thread cho 1 hypothesis: `ransac_sample` + `dlt_fit` 4 điểm + `invert_h` |
+| 5 | `score_kernel` | 1 block (256 thread) cho 1 hypothesis, H và H⁻¹ nạp vào shared memory, reduction đếm inlier |
+| 5 | `select_kernel` | 1 block: (số inlier lớn nhất, iter nhỏ nhất) |
+| 5 | `inlier_flag_kernel` → `compact_indices_kernel` | 1 thread cho 1 match; gom inlier theo thứ tự |
+| 5 | `refit_kernel` | 1 thread gọi `hd::dlt_fit` trên inlier theo đúng thứ tự V0; lặp 2 lượt |
+| 6 | `exposure_stats_kernel` → `exposure_fit_kernel` | 1 thread cho 1 điểm lấy mẫu (bước 2); reduction 2 bước có thứ tự cố định (12 tổng + số mẫu) |
+| 6 | `exposure_error_kernel` → `exposure_decide_kernel` | Như trên cho raw/corrected error; 1 thread quyết định exposure và seam |
+| 6 | `seam_cost_kernel` | 1 thread cho 1 pixel canvas (khối 16×16) |
+| 6 | `seam_dp_kernel` | 1 block 1024 thread, lặp theo hàng, `__syncthreads_or` cuối mỗi hàng; argmin + truy vết trong cùng kernel |
+| 6 | `warp_blend_kernel` | 1 thread cho 1 pixel đầu ra (khối 16×16), gọi `hd::warp_blend_pixel` |
+
+Host chỉ đọc về các số dùng để in log và rẽ nhánh như V0: số match, (iter, số inlier) của hypothesis tốt nhất, trạng thái refit, số inlier mỗi lượt, H, và quyết định exposure/seam. Canvas và H⁻¹ tính trên host bằng đúng hàm `hd::canvas_layout` và `hd::invert_h` mà V0 dùng.
+
+### Kết quả kiểm tra trên máy (25/11/2026)
+
+Bộ kiểm tra nằm ngoài repo, trong `verify_partB/local/run_local.py`. Không có GPU NVIDIA, nên kernel được chạy bằng giả lập: mỗi block chạy bằng `blockDim` thread hệ điều hành, `__syncthreads` là barrier thật (dừng có báo lỗi nếu các thread của một block không cùng tới barrier), bộ nhớ cấp phát được điền rác `0xCD`. Build bằng `-ffp-contract=off` để giống ngữ nghĩa `--fmad=false`. Dữ liệu là 5 cặp tự sinh từ `synthetic_GT.HEIC`, phủ đủ các nhánh: dịch thuần, warp phối cảnh kèm lệch sáng (exposure affine), thị sai nhẹ, vật che khuất (seam optimal, MAE 27,7), ảnh nhỏ xoay 3°.
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Comment trong dòng code mới | 0 |
+| clang `-x cuda -fsyntax-only` phía host và `sm_75`, `-Wall -Wextra` | Không lỗi, không cảnh báo; đã thử cài lỗi (constructor host, `std::isfinite`, `std::vector` trong kernel) và lint đều bắt được |
+| V0 sau refactor so với nhánh Phần A | Trùng từng byte trên 5 cặp: H, panorama, log |
+| `test_backend` giả lập, 5 cặp | Đạt cả 5 ở mức nghiêm ngặt: match, inlier, H (từng bit), canvas, quyết định blend, `seam_x`, panorama trùng V0; chạy nối liền 3 stage cũng trùng. `overlap MAE` lệch ≤ 6e-14 (thứ tự cộng khác), gain/bias trùng |
+| Kiểm tra đột biến (cài lỗi vào bản sao `gpu_backend.cu`, cặp `occluder_seam`) | Bỏ điều kiện mutual: bắt được (match khác). Hỏng `first_y` của seam DP: bắt được (`seam_x` và pixel khác). Đổi tie-break khi chọn hypothesis: không đổi kết quả, vì các hypothesis cùng số inlier có cùng tập inlier và refit chỉ dùng tập inlier |
+
+### Khác so với kế hoạch
+
+- **Refit (B.0 #7, B.2):** dùng 1 thread gọi `hd::dlt_fit` theo thứ tự inlier của V0 thay cho reduction tâm/ATA. Có tối đa 1500 inlier nên chi phí nhỏ, đổi lại H trùng từng bit với V0, tránh lệch pixel ở mép canvas (phát hiện 4 ở Phần A). Reduction song song cho refit có thể là một hướng tối ưu cho V2/V3 nếu đo thấy refit đáng kể.
+- **Exposure:** reduction 2 bước có thứ tự cố định nên kết quả xác định, nhưng thứ tự cộng khác V0. Tổng có thể lệch ở bit cuối; trên 5 cặp thử, chỉ `overlap MAE` lệch cỡ 1e-14 và pixel không đổi. Tiêu chí pixel ±1 ở mục 6 vẫn cần cho trường hợp này.
+- **Canvas và H⁻¹:** tính trên host bằng hàm dùng chung (4 phép chiếu góc và 1 nghịch đảo 3×3), không dùng kernel `canvas_bounds`. H phải về host để kiểm tra canvas như V0, nên làm thêm 1 kernel cũng không bớt được lần chép nào.
+- **Seam DP:** chọn phương án 1 block lặp theo hàng (đã ghi là hợp lệ ở B.2), host không phải điều phối từng hàng.
+- **Giao diện:** `GpuFeatures.count` là số trên host thay vì con trỏ device, vì V1 vẫn phải in `Keypoints: A=..., B=...` nên số keypoint luôn phải về host. Mọi buffer làm việc thuộc `GpuBackend` và được giữ lại giữa các lần chạy (đo ở trạng thái ổn định); cấp phát chỉ xảy ra ở lần đầu.
+- **Refactor V0:** các quy tắc từng phần tử của stage 4–6 chuyển vào `hd_backend.h`, V0 và V1 gọi cùng hàm. Ba bước kiểm tra `check_match_count`, `check_ransac_consensus`, `check_canvas_bounds` được tách khỏi `run_v0` để `run_v1` dùng lại, log giữ nguyên.
+
+### Việc tiếp theo
+
+- [ ] Lượt Colab 1: chạy `verify_partB/verify_partB.ipynb` (T4), gửi lại file đã chạy.
+- [ ] Ca lỗi B.3 (assignment 9.3): ít hơn 4 match, descriptor rỗng, H suy biến, canvas quá lớn.
+- [ ] Chốt với Hưng: `--version 1`, các trường timing H2D/D2H trong `StageTimings`, gộp `device_buffer.cuh` vào `gpu_buffers.cuh`, target build cho V1.
+- [ ] Chốt với Phúc: frontend GPU trả `Keypoint*`, `Descriptor256*` trên device và số keypoint trên host, theo thứ tự A4; bảng BRIEF cần bản `__constant__`.
+- [ ] M2: `run_v1` trong `src/gpu_pipeline.cu`, dùng `GpuBackend` và các hàm `check_*`.
+
 ## 0. Tóm tắt
 
 - **Vai trò:** back-end stages 4–6 (matching, RANSAC, warp/blend); chủ trì ghép frontend ↔ backend và **nghiệm thu V1 Basic CUDA**.
@@ -406,7 +469,7 @@ Trên macOS chỉ biên dịch được V0: `cd src && make cpu`. Để chuẩn 
 4. **Chọn hypothesis tốt nhất** ([136](src/v0_backend.cpp#L136)): V0 dùng `>` nghiêm ngặt, nên khi bằng số inlier thì iteration sớm nhất thắng. Reduction trên GPU so theo cặp (số inlier lớn nhất, iter nhỏ nhất).
 5. **Ép float giữa chừng** trong `project_point`: dùng hàm chung (A2).
 6. **FMA:** nvcc mặc định gộp phép nhân-cộng. Điểm nằm sát ngưỡng 3 px có thể đổi trạng thái inlier, và pixel có thể lệch 1 khi ép `uint8_t`. Đề xuất `--fmad=false` cho mọi bản GPU (mục 6).
-7. **Cộng số thực theo thứ tự khác:** thống kê exposure và ATA khi refit đều là phép cộng dồn. Không dùng `atomicAdd` double vì mỗi lần chạy cho kết quả hơi khác. Dùng reduction 2 bước có thứ tự cố định: mỗi block tính một tổng con, rồi một kernel cộng các tổng con theo thứ tự.
+7. **Cộng số thực theo thứ tự khác:** thống kê exposure và ATA khi refit đều là phép cộng dồn. Không dùng `atomicAdd` double vì mỗi lần chạy cho kết quả hơi khác. Refit: 1 thread gọi `hd::dlt_fit` theo đúng thứ tự inlier, nên H trùng từng bit với V0. Exposure: reduction 2 bước có thứ tự cố định, mỗi block tính một tổng con rồi một kernel cộng các tổng con theo thứ tự; kết quả xác định nhưng có thể lệch V0 ở bit cuối.
 8. **Seam DP** ([291-333](src/v0_backend.cpp#L291-L333)):
    - Xét `d = -2..2` theo thứ tự với `<`, nên khi bằng nhau thì `d` nhỏ nhất thắng.
    - Hàng không có pixel hợp lệ bị bỏ qua và `previous` giữ nguyên.
@@ -446,9 +509,8 @@ File mới của TV1: `src/gpu_backend.cuh` (giao diện), `src/gpu_backend.cu` 
 | `ransac_score` | 1 block cho 1 hypothesis: các thread chia nhau duyệt match, block reduction đếm inlier |
 | `ransac_select` | Argmax theo (số inlier, −iter) |
 | `collect_inliers` | 1 thread cho 1 match, sau đó gom có thứ tự |
-| `refit_normalize` / `refit_accumulate` | Reduction tâm và khoảng cách trung bình, rồi reduction ATA (64 số) + ATb (8 số) theo thứ tự cố định |
-| `refit_solve` | 1 thread chạy `dlt_solve`; lặp 2 lượt như V0 |
-| `canvas_bounds` | 1 thread chiếu 4 góc ảnh B; copy vài số về host để cấp phát canvas và kiểm tra như [v0_stitching.cpp:117-148](src/v0_stitching.cpp#L117-L148) |
+| `refit` | 1 thread chạy `hd::dlt_fit` trên các inlier theo thứ tự của V0; lặp 2 lượt như V0 (đã đổi so với bản nháp dùng reduction, xem mục Trạng thái Phần B) |
+| Canvas | Host tính bằng `hd::canvas_layout` sau khi H về host để kiểm tra như `check_canvas_bounds` (đã đổi so với bản nháp có kernel `canvas_bounds`) |
 
 - Giữ double để khớp V0. GPU T4 chạy double rất chậm (khoảng 1/32 tốc độ float); ghi điều này vào phần phân tích V1, đây là dữ liệu tốt cho V2/V3.
 - Không đổi sang sai số một chiều.
@@ -471,7 +533,7 @@ File mới của TV1: `src/gpu_backend.cuh` (giao diện), `src/gpu_backend.cu` 
 - Hàng không hợp lệ: copy cờ hàng về host một lần; host chỉ launch kernel cho các hàng hợp lệ và truyền đúng con trỏ "hàng trước".
 - Phương án hợp lệ khác cho seam: kernel **chỉ có 1 block**, lặp qua các hàng và gọi `__syncthreads()` giữa các hàng.
 
-**Giao diện hàm host (bản nháp, chốt cùng Phúc/Hưng):**
+**Giao diện hàm host (bản nháp ban đầu; bản đã cài là lớp `GpuBackend` trong `src/gpu_backend.cuh`, xem mục Trạng thái Phần B):**
 
 ```cpp
 struct GpuFeatures { const Keypoint* d_kpts; const Descriptor256* d_desc; const int* d_count; int capacity; };
@@ -487,12 +549,12 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
 
 ## B.3 M1b — Kiểm tra backend độc lập (không chờ frontend của Phúc)
 
-- [ ] Viết `src/tests/test_backend.cu`, hoặc một chế độ trong CLI:
+- [x] Viết `src/tests/test_backend.cu`, hoặc một chế độ trong CLI:
   1. chạy frontend **V0**;
   2. upload keypoint và descriptor của V0 lên GPU;
   3. chạy stage 4–6 trên GPU;
   4. so với `PipelineTrace` của V0.
-- [ ] Các tiêu chí so sánh:
+- [x] Các tiêu chí so sánh (đã cài trong `test_backend`; chờ chạy trên GPU thật):
   - Danh sách match giống hệt: index, distance, thứ tự.
   - Tập inlier giống hệt.
   - H: sai số chiếu trên lưới điểm so với H của V0 (mean và max px).
@@ -500,7 +562,7 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
   - Cùng quyết định exposure và seam; gain/bias; `seam_x` giống hệt.
   - Pixel: max |diff| và % pixel lệch trên vùng hợp lệ.
 - [ ] Thử các ca lỗi (assignment 9.3): ít hơn 4 match, descriptor rỗng, H suy biến, canvas quá lớn, ảnh large 3840×2160.
-- [ ] Chạy `compute-sanitizer --tool memcheck` và `--tool racecheck`.
+- [ ] Chạy `compute-sanitizer --tool memcheck` và `--tool racecheck` (đã có trong notebook lượt 1, thêm `initcheck`, `synccheck`).
 - [ ] Synthetic: sai số chiếu của V1 dưới 1 px.
 
 ## B.4 M2 — Tích hợp và nghiệm thu V1 (TV1 chủ trì)
