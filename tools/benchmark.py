@@ -18,6 +18,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SITES = ['site1_indoor', 'site2_outdoor', 'site3_custom', 'site4_challenging']
 STAGES = ['preprocess_ms', 'keypoint_ms', 'descriptor_ms', 'matching_ms', 'ransac_ms', 'warp_blend_ms']
 
+def timing_metrics(version):
+    names = STAGES + ['total_pipeline_ms']
+    if version == 1:
+        names += ['h2d_ms', 'd2h_ms', 'gpu_stage_sum_ms']
+    return names
+
 def save_largest_valid_crop(source, destination):
     """Save the largest all-image rectangle; the warp canvas background is exact black."""
     with Image.open(source) as image:
@@ -54,8 +60,8 @@ def save_largest_valid_crop(source, destination):
     cropped.save(destination)
     return list(best_box), best_area / valid.size
 
-def run(binary, left, right, output, runs, warmup, prefix):
-    command = [str(binary), str(left), str(right), str(output), '--version', '0',
+def run(binary, left, right, output, runs, warmup, prefix, version=0):
+    command = [str(binary), str(left), str(right), str(output), '--version', str(version),
                '--runs', str(runs), '--warmup', str(warmup), '--save-h', str(prefix.with_suffix('.H.txt')),
                '--timings-csv', str(prefix.with_suffix('.csv'))]
     # Remove old products so failed reruns cannot reuse stale results.
@@ -70,20 +76,21 @@ def run(binary, left, right, output, runs, warmup, prefix):
         samples = [{k: float(v) for k, v in row.items()} for row in csv.DictReader(file)]
     if len(samples) != runs:
         raise ValueError('Incorrect measured run count')
+    metrics = timing_metrics(version)
     for row in samples:
-        if not all(np.isfinite(row[k]) and row[k] >= 0 for k in STAGES + ['total_pipeline_ms']):
+        if not all(np.isfinite(row[k]) and row[k] >= 0 for k in metrics):
             raise ValueError('Invalid timing sample')
     blend_rows = re.findall(r'Blend: exposure=(\w+), overlap MAE=([\d.]+), seam=(\w+)', result.stdout)
     blend = (dict(exposure=blend_rows[-1][0], overlap_mae=float(blend_rows[-1][1]),
                   seam=blend_rows[-1][2]) if blend_rows else None)
     return dict(success=True, runs=runs, warmup=warmup, command=command, blend=blend,
-        mean={k: float(np.mean([r[k] for r in samples])) for k in STAGES + ['total_pipeline_ms']},
-        min={k: float(min(r[k] for r in samples)) for k in STAGES + ['total_pipeline_ms']})
+        mean={k: float(np.mean([r[k] for r in samples])) for k in metrics},
+        min={k: float(min(r[k] for r in samples)) for k in metrics})
 
-def correctness(root, binary, out):
+def correctness(root, binary, out, version=0, runs=5, warmup=1):
     data = root / 'dataset/synthetic'
     result = run(binary, data/'synthetic_left.png', data/'synthetic_right.png',
-                 out/'synthetic_panorama.png', 5, 1, out/'synthetic')
+                 out/'synthetic_panorama.png', runs, warmup, out/'synthetic', version)
     if result['success']:
         gt = np.loadtxt(data/'H_ground_truth.txt')
         estimated = np.loadtxt(out/'synthetic.H.txt')
@@ -102,19 +109,20 @@ def correctness(root, binary, out):
                       if (data/'provenance.json').exists() else {'kind': 'user_provided'})
     return result
 
-def benchmark(root=ROOT, runs=5, warmup=1):
+def benchmark(root=ROOT, runs=5, warmup=1, version=0):
     if runs < 5 or warmup < 0:
         raise ValueError('Report requires runs >= 5 and warmup >= 0')
     binary = root / ('stitch.exe' if os.name == 'nt' else 'stitch')
-    out = root / 'outputs_v0'
+    out = root / f'outputs_v{version}'
     out.mkdir(exist_ok=True)
     summary = dict(timestamp_utc=datetime.now(timezone.utc).isoformat(),
                    machine=platform.platform(), processor=platform.processor(),
-                   runs=runs, warmup=warmup,
+                   runs=runs, warmup=warmup, version=version,
                    source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                        for p in (root/'src').iterdir() if p.suffix in ['.cu', '.cpp', '.h', '.cuh']},
                    selected_gpu_stages=STAGES, results=[])
-    summary['correctness'] = correctness(root, binary, out)
+    metrics = timing_metrics(version)
+    summary['correctness'] = correctness(root, binary, out, version, runs, warmup)
     for resolution in ['small', 'medium', 'large']:
         for site in SITES:
             log('PROCESS', f'Benchmark {resolution}/{site}')
@@ -123,7 +131,7 @@ def benchmark(root=ROOT, runs=5, warmup=1):
             # Only retain medium panoramas; temporary other sizes are removed after timing.
             output = out / (f'panorama_{site}.png' if resolution == 'medium' else f'bench_{resolution}_{site}.png')
             result = run(binary, data/f'{site}_left.png', data/f'{site}_right.png',
-                         output, runs, warmup, prefix)
+                         output, runs, warmup, prefix, version)
             if result['success'] and resolution == 'medium':
                 cropped = out / f'panorama_{site}_cropped.png'
                 crop_box, retained = save_largest_valid_crop(output, cropped)
@@ -140,13 +148,14 @@ def benchmark(root=ROOT, runs=5, warmup=1):
         if not rows:
             continue
         # Equal weight to each site, each of which has the same measured run count.
-        mean = {k: float(np.mean([r['mean'][k] for r in rows])) for k in STAGES+['total_pipeline_ms']}
+        mean = {k: float(np.mean([r['mean'][k] for r in rows])) for k in metrics}
         # Mean of per-site minima: this is NOT the global minimum run.
-        minimum = {k: float(np.mean([r['min'][k] for r in rows])) for k in STAGES+['total_pipeline_ms']}
-        p = sum(mean[k] for k in summary['selected_gpu_stages']) / mean['total_pipeline_ms']
+        minimum = {k: float(np.mean([r['min'][k] for r in rows])) for k in metrics}
         aggregate.append(dict(resolution=resolution, sites=len(rows), mean=mean,
-            mean_of_site_min=minimum, hot_stage=max(STAGES, key=mean.get),
-            p=p, amdahl_limit=1/(1-p) if p < 1 else None))
+            mean_of_site_min=minimum, hot_stage=max(STAGES, key=mean.get)))
+        if version == 0:
+            p = sum(mean[k] for k in summary['selected_gpu_stages']) / mean['total_pipeline_ms']
+            aggregate[-1].update(p=p, amdahl_limit=1/(1-p) if p < 1 else None)
     summary['aggregate'] = aggregate
     (out/'summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
     with (out/'timings_summary.csv').open('w', newline='', encoding='utf-8') as file:
@@ -154,7 +163,7 @@ def benchmark(root=ROOT, runs=5, warmup=1):
         writer.writerow(['resolution', 'site', 'stage', 'mean_ms', 'min_ms'])
         for row in summary['results']:
             if row['success']:
-                for stage in STAGES+['total_pipeline_ms']:
+                for stage in metrics:
                     writer.writerow([row['resolution'], row['site'], stage, row['mean'][stage], row['min'][stage]])
     failures = [r for r in summary['results'] if not r['success']]
     log('ERROR' if failures else 'SUCCESS', f"{len(summary['results'])-len(failures)}/12 successful real pairs")
@@ -164,6 +173,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--runs', type=int, default=5)
     parser.add_argument('--warmup', type=int, default=1)
+    parser.add_argument('--version', type=int, choices=[0, 1], default=0)
     args = parser.parse_args()
-    report = benchmark(runs=args.runs, warmup=args.warmup)
+    report = benchmark(runs=args.runs, warmup=args.warmup, version=args.version)
     sys.exit(0 if all(r['success'] for r in report['results']) and report['correctness'].get('passed') else 1)

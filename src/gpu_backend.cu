@@ -37,6 +37,11 @@ struct Chunk {
     int total;
 };
 
+__global__ void prepare_warp(GpuImage a, GpuImage b, Mat3 h, GpuWarpSetup* setup) {
+    setup->layout = hd::canvas_layout(h.m, a.width, a.height, b.width, b.height);
+    setup->invertible = hd::invert_h(h.m, setup->h_inv);
+}
+
 int blocks_for(long long count, int threads) {
     return static_cast<int>((count + threads - 1) / threads);
 }
@@ -581,9 +586,20 @@ bool GpuBackend::estimate_homography(const GpuFeatures& a, const GpuFeatures& b,
 void GpuBackend::warp_and_blend(const GpuImage& a, const GpuImage& b, const Homography3x3& h,
                                 BlendInfo* info, cudaStream_t stream) {
     if (info) *info = BlendInfo{};
-    layout_ = hd::canvas_layout(h.h, a.width, a.height, b.width, b.height);
+    Mat3 transform;
+    for (int i = 0; i < 9; ++i) transform.m[i] = h.h[i];
+    warp_setup_.reserve(1);
+    prepare_warp<<<1, 1, 0, stream>>>(a, b, transform, warp_setup_.data());
+    check_launch();
+    GpuWarpSetup setup{};
+    warp_setup_.download(&setup, 1, stream);
+    CHECK_CUDA(cudaStreamSynchronize(stream));
+    layout_ = setup.layout;
     const int width = layout_.width;
     const int height = layout_.height;
+    if (width <= 0 || height <= 0 || width > cfg::kMaxCanvasSide ||
+        height > cfg::kMaxCanvasSide || double(width) * height > cfg::kMaxCanvasPixels)
+        throw std::runtime_error("Implausible canvas; check input overlap and matches");
     const size_t pixels = static_cast<size_t>(width) * height;
     panorama_.reserve(pixels * 3);
     if (info) {
@@ -593,11 +609,12 @@ void GpuBackend::warp_and_blend(const GpuImage& a, const GpuImage& b, const Homo
         info->offset_y = layout_.offset_y;
     }
     WarpGeometry g;
-    if (!hd::invert_h(h.h, g.h_inv.m)) {
+    if (!setup.invertible) {
         panorama_.fill_bytes(0, pixels * 3, stream);
         CHECK_CUDA(cudaStreamSynchronize(stream));
         return;
     }
+    for (int i = 0; i < 9; ++i) g.h_inv.m[i] = setup.h_inv[i];
     g.a = hd::RgbView{a.data, a.width, a.height};
     g.b = hd::RgbView{b.data, b.width, b.height};
     g.offset_x = layout_.offset_x;

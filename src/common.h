@@ -74,6 +74,9 @@ struct StageTimings {
     double stage5_ransac_ms = 0.0;
     double stage6_warp_blend_ms = 0.0;
     double total_pipeline_ms = 0.0;
+    double h2d_ms = 0.0;
+    double d2h_ms = 0.0;
+    double gpu_stage_sum_ms = 0.0;
 };
 
 struct BlendInfo {
@@ -90,6 +93,7 @@ struct BlendInfo {
 };
 
 struct PipelineTrace {
+    ImageGray blurredA, blurredB;
     std::vector<Keypoint> kptsA, kptsB;
     std::vector<Descriptor256> descA, descB;
     std::vector<Match> matches;

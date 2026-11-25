@@ -32,6 +32,37 @@ g++ -O3 -std=c++14 -x c++ src/main.cu src/stb_impl.cpp src/v0_frontend.cpp src/v
 # Có CUDA: cd src && make cuda
 ```
 
+## V1 CUDA trên Colab
+
+Mở [Group22_V0_V1_Colab.ipynb](Group22_V0_V1_Colab.ipynb) để chạy toàn bộ thực
+nghiệm V0/V1, xem ảnh ghép và tải kết quả trong một notebook.
+
+V1 chạy cả sáu stage qua `--version 1`. CPU đọc và ghi ảnh, quản lý buffer, kiểm tra
+điều kiện chạy và nhận các số đếm phục vụ điều phối. Dùng Colab GPU T4 với CUDA
+Toolkit và dữ liệu đã chuẩn bị như trên. Kiến trúc CUDA khác có thể chọn bằng
+`--arch` hoặc `CUDA_ARCH` của Makefile.
+
+```bash
+python tools/build.py --cuda --arch sm_75
+python tools/verify_v1.py --report outputs_v1/verification.json
+(cd src && make test-backend && ./test_backend --check-errors)
+python tools/benchmark.py --version 0 --warmup 1 --runs 5
+python tools/benchmark.py --version 1 --warmup 1 --runs 5
+```
+
+Công cụ kiểm tra đối chiếu đầu ra từng stage trên 12 cặp thật và một cặp synthetic.
+Nếu không đọc được HEIC, `python tools/prepare_dataset.py --synthetic-only --procedural-synthetic`
+tạo cặp ảnh tự sinh với homography tịnh tiến đã biết.
+
+Chạy hai benchmark trong cùng phiên Colab. Với mỗi cặp, lấy `total_pipeline_ms`
+của V0 chia cho V1 để tính speedup. Trường này đo từ ảnh RGB trong RAM đến panorama
+trong RAM. V1 đo sáu stage, H2D ảnh RGB và D2H panorama bằng CUDA events. Các lần
+đọc số đếm nhỏ thuộc thời gian của stage tương ứng. `gpu_stage_sum_ms` là tổng thời
+gian sáu stage. Có thể dùng CUDA trace trong Nsight Systems để đo riêng thời gian
+kernel. Buffer GPU tăng dung lượng khi cần và được dùng lại sau warmup. Khởi tạo
+stream và timer, đọc/ghi file và lần chạy thêm của `--dump-dir` nằm ngoài số đo
+benchmark.
+
 ## Dữ liệu và kết quả
 
 - 8 ảnh raw đặt phẳng theo mẫu `dataset/raw/<category>_<left|right>.<ext>`; category là `indoor`, `outdoor`, `custom` hoặc `challenging`.

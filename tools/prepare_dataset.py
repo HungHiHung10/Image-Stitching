@@ -76,17 +76,35 @@ def prepare(root=ROOT):
     log('SUCCESS', f'Prepared {len(records)} images; manifest: {manifest}')
     return records
 
-import math
-import json
-import numpy as np
-from pathlib import Path
-from PIL import Image, ImageDraw
-
 try:
     import pillow_heif
     pillow_heif.register_heif_opener()
 except ImportError:
     pass
+
+def synthetic_procedural(root):
+    target = root / 'dataset/synthetic'
+    target.mkdir(parents=True, exist_ok=True)
+    width, height, offset, seed = 640, 480, 320, 14120
+    rng = np.random.default_rng(seed)
+    scene = Image.new('RGB', (width + offset, height), (32, 40, 48))
+    draw = ImageDraw.Draw(scene)
+    for _ in range(380):
+        x = int(rng.integers(scene.width))
+        y = int(rng.integers(height))
+        w, h = (int(v) for v in rng.integers(7, 42, size=2))
+        color = tuple(int(v) for v in rng.integers(50, 256, size=3))
+        draw.rectangle((x, y, x + w, y + h), fill=color)
+        draw.line((x, y + h, x + w, y), fill=(15, 15, 15), width=2)
+    scene.save(target / 'synthetic_scene.png')
+    scene.crop((0, 0, width, height)).save(target / 'synthetic_left.png')
+    scene.crop((offset, 0, offset + width, height)).save(target / 'synthetic_right.png')
+    np.savetxt(target / 'H_ground_truth.txt', [[1, 0, offset], [0, 1, 0], [0, 0, 1]], fmt='%.17g')
+    (target / 'provenance.json').write_text(json.dumps(dict(
+        kind='procedural_translation_fixture', seed=seed, official_course_pair=False,
+        direction='B_right_to_A_left', crop_width=width, crop_height=height,
+        offset_px=offset, overlap_ratio=(width - offset) / width), indent=2), encoding='utf-8')
+    log('SUCCESS', f'Generated procedural synthetic pair (offset: {offset}px)')
 
 def synthetic(root=ROOT, procedural=False):
     """

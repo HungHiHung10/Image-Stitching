@@ -86,7 +86,15 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 - [ ] Hưng tag `midterm-v0` vào commit `39b4764`, và duyệt các thay đổi ở `common.h`, `versions.h`, `main.cu`, Makefile.
 - [ ] Sau khi merge: Hưng chạy lại benchmark V0 cho notebook Final. Notebook ghi rõ V0 Final khác V0 Midterm ở A3/A4 (bảng ở phát hiện 3) và trích dẫn splitmix64 (Steele, Lea, Flood, OOPSLA 2014) ở hai nơi: mục 3 stage 5, chỗ mô tả RANSAC, và mục References.
 
-## Trạng thái Phần B (cập nhật 25/11/2026, nhánh `feat/v1-basic-cuda`)
+## Trạng thái tích hợp trên nhánh `v1`
+
+Đã ghép frontend và backend CUDA qua `--version 1` và bổ sung lệnh đối chiếu
+V0/V1 cùng benchmark trong README. Stage 6 tính kích thước canvas và H nghịch
+đảo trên GPU; host kiểm tra H và giới hạn kích thước trước khi cấp phát.
+Kết quả Colab dưới đây thuộc bài test backend độc lập. Kết quả nghiệm thu V1
+tích hợp sẽ được cập nhật sau khi chạy trên GPU.
+
+## Trạng thái Phần B ở mốc backend độc lập (25/11/2026, nhánh `feat/v1-basic-cuda`)
 
 **Kết luận:** M1 (kernel stage 4–6) và chương trình kiểm tra độc lập B.3 đã xong và đạt lượt Colab 1 (Tesla T4, 25/11/2026). Trên 12 cặp thật và synthetic, backend GPU cho match, inlier, H, canvas, quyết định blend, `seam_x` và panorama trùng từng bit với V0, và compute-sanitizer không báo lỗi. Phần còn lại của M1 là các ca lỗi B.3. Chưa làm M2 (`run_v1`), vì phần này cần frontend GPU của Phúc và CLI `--version 1` của Hưng. Nhánh đã push và mở draft PR với base là `refactor/v0-baseline-lock`; khi PR Phần A được merge thì đổi base sang `main`.
 
@@ -601,18 +609,17 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
   - Canvas cùng kích thước và offset.
   - Cùng quyết định exposure và seam; gain/bias; `seam_x` giống hệt.
   - Pixel: max |diff| và % pixel lệch trên vùng hợp lệ.
-- [ ] Thử các ca lỗi (assignment 9.3): ít hơn 4 match, descriptor rỗng, H suy biến, canvas quá lớn. Ảnh large 3840×2160 đã chạy đạt ở lượt Colab 1.
+- [ ] Chạy `test_backend --check-errors` trên GPU. Bộ test đã có ca dưới 4 match, descriptor rỗng, keypoint thẳng hàng, H suy biến và canvas quá lớn.
 - [x] Chạy `compute-sanitizer` với `memcheck`, `racecheck`, `initcheck`, `synccheck`: lượt Colab 1 không báo lỗi trên `small_site4_challenging` và `small_site2_outdoor`.
 - [x] Synthetic: H của V1 trùng từng bit với V0, nên sai số chiếu bằng của V0 (< 1e-10 px).
 
 ## B.4 M2 — Tích hợp và nghiệm thu V1 (TV1 chủ trì)
 
-- [ ] Viết `run_v1(...)` trong `src/gpu_pipeline.cu`, cùng chữ ký `run_v0` (có `outH`, `trace`). Luồng: H2D RGB A/B → frontend A, B (Phúc) → stage 4–6 → các kiểm tra như [v0_stitching.cpp:104-148](src/v0_stitching.cpp#L104-L148) với cùng thông báo lỗi → D2H panorama.
-- [ ] Đo bằng `GpuTimer` cho từng stage, H2D, D2H và end-to-end. Ghi rõ:
-  - mỗi lần copy nhỏ giữa các stage được tính vào stage nào;
-  - việc cấp phát nằm trong hay ngoài vùng đo (thống nhất với Hưng).
+- [x] Tích hợp `V1Pipeline::run_v1` trong `src/gpu_pipeline.cu`. CLI `--version 1` chạy H2D RGB → frontend GPU → backend GPU → D2H panorama, có `--save-h` và `--dump-dir`.
+- [x] Frontend GPU dùng một thread mỗi pixel cho grayscale, hai pass Gaussian, FAST và NMS. Top-K sắp khóa response giảm rồi chỉ số pixel tăng bằng CUB radix sort. Mỗi thread ghi một BRIEF 256 bit từ bảng hằng dùng chung.
+- [x] Dùng CUDA events cho mỗi stage và hai lần truyền ảnh chính. Dùng đồng hồ host cho end-to-end. Các lần đọc nhỏ thuộc thời gian từng stage; warmup làm nóng các buffer được tái sử dụng. Xem cách chạy `tools/verify_v1.py` và benchmark trong README.
 - [ ] Không dùng `CHECK_KERNEL_ASYNC` khi đo thời gian: macro này thực ra có gọi `cudaDeviceSynchronize` ([cuda_utils.cuh:16](src/cuda_utils.cuh#L16)). Khi đo chỉ gọi `cudaGetLastError`; đồng bộ đầy đủ chỉ dùng ở chế độ debug.
-- [ ] Giải phóng bộ nhớ đúng cả khi gặp lỗi (dùng buffer RAII trong `gpu_buffers.cuh` của Hưng).
+- [x] Stream, timer và buffer dùng RAII trong pipeline V1.
 - [ ] Chạy 4 cặp × 3 kích thước, warmup 1, runs 5. Cặp thất bại phải ghi rõ lỗi, không dùng lại ảnh kết quả cũ.
 - [ ] Checklist nghiệm thu (assignment 5.5):
   - [ ] Biên dịch bằng CUDA trên Colab và thực sự launch kernel cho cả sáu stage.
@@ -690,11 +697,11 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
 
 | Vấn đề | Vị trí | Người phụ trách |
 |---|---|---|
-| Hàm `synthetic_procedural()` được gọi nhưng chưa định nghĩa → `NameError` khi thiếu HEIC hoặc chạy `--procedural-synthetic` (README dòng 10 hướng dẫn chạy lệnh này) | [prepare_dataset.py:100](tools/prepare_dataset.py#L100) | Hưng |
+| Đã bổ sung fixture tự sinh khi không đọc được HEIC hoặc chạy `--procedural-synthetic` | [prepare_dataset.py](tools/prepare_dataset.py) | Hưng |
 | README nhắc `tools/verify_cli.py`, `execute_notebook.py`, `package.py` nhưng repo không có | [README.md:12-14](README.md#L12-L14) | Hưng |
 | Cell kiểm tra correctness (mục 3.5.1) dùng đường dẫn cứng `Path('A:\\PP\\Midterm')` → Run All trên Colab lỗi | Group22_Midterm.ipynb | Hưng |
 | Bảng "Lộ trình phân công" trong notebook Midterm khác phân công ngày 03/11 | Group22_Midterm.ipynb | Hưng (notebook Final) |
-| CLI chỉ nhận V0, Makefile/build chưa có nguồn CUDA, benchmark cứng V0 | main.cu, Makefile, build.py, benchmark.py | Hưng |
+| Đã nối CLI, build và benchmark cho V0/V1. Còn xác nhận trên Colab GPU | main.cu, Makefile, build.py, benchmark.py | Hưng |
 
 ## 8. Quy ước Git cho phần việc này
 

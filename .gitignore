@@ -39,6 +39,7 @@ dataset/backup/
 # required tables, charts, and panorama previews.
 outputs_v0/*
 !outputs_v0/.gitkeep
+outputs_v1/
 
 # Other generated files
 *.png

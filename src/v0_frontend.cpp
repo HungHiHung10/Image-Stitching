@@ -12,6 +12,7 @@
 
 #include "versions.h"
 #include "brief_pattern.h"
+#include "frontend_math.h"
 #include <cmath>
 #include <algorithm>
 #include <cstring>
@@ -45,15 +46,8 @@ ImageGray v0_gaussian_blur(const ImageGray& gray, float sigma) {
 
     // 1D Gaussian Kernel generation (size = 5)
     const int kernel_radius = cfg::kBlurRadius;
-    const int kernel_size = 2 * kernel_radius + 1;
-    float kernel[2 * cfg::kBlurRadius + 1];
-    float sum = 0.0f;
-    for (int i = -kernel_radius; i <= kernel_radius; ++i) {
-        float val = std::exp(-(i * i) / (2.0f * sigma * sigma));
-        kernel[i + kernel_radius] = val;
-        sum += val;
-    }
-    for (int i = 0; i < kernel_size; ++i) kernel[i] /= sum;
+    const auto weights = gaussian_weights(sigma);
+    const auto& kernel = weights.values;
 
     // Separable 1D Gaussian Blur: Pass 1 - Horizontal
     std::vector<float> temp(w * h, 0.0f);

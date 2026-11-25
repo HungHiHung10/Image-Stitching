@@ -3,6 +3,9 @@
 #include "logging.h"
 #include "stb_image.h"
 #include "stb_image_write.h"
+#ifdef STITCH_CUDA
+#include "gpu_pipeline.cuh"
+#endif
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -12,17 +15,20 @@
 #include <stdexcept>
 
 static const char* names[] = {"preprocess_ms", "keypoint_ms", "descriptor_ms",
-    "matching_ms", "ransac_ms", "warp_blend_ms", "total_pipeline_ms"};
+    "matching_ms", "ransac_ms", "warp_blend_ms", "total_pipeline_ms",
+    "h2d_ms", "d2h_ms", "gpu_stage_sum_ms"};
 static const double StageTimings::* fields[] = {
     &StageTimings::stage1_preprocess_ms, &StageTimings::stage2_keypoint_ms,
     &StageTimings::stage3_descriptor_ms, &StageTimings::stage4_matching_ms,
     &StageTimings::stage5_ransac_ms, &StageTimings::stage6_warp_blend_ms,
-    &StageTimings::total_pipeline_ms};
+    &StageTimings::total_pipeline_ms,
+    &StageTimings::h2d_ms, &StageTimings::d2h_ms, &StageTimings::gpu_stage_sum_ms};
+static constexpr int kCpuTimingFields = 7;
 static void usage(const char* name) {
-    std::cout << "Usage: " << name << " <left> <right> <output.png|jpg> --version 0\n"
+    std::cout << "Usage: " << name << " <left> <right> <output.png|jpg> --version 0|1\n"
         "  [--runs N] [--warmup N] [--save-h FILE] [--timings-csv FILE] [--dump-dir DIR]\n"
-        "Runs must be positive; warmup defaults to 0 and is excluded from statistics.\n"
-        "--dump-dir writes keypoints, descriptors, matches, inliers, H and blend data\n"
+        "V1 requires a CUDA build. Runs default to 5; warmup defaults to 0.\n"
+        "--dump-dir writes blurred images, keypoints, descriptors, matches, inliers, H and blend data\n"
         "  from one extra untimed run; DIR must exist.\n"
         "H maps right (B) to left (A). Set NO_COLOR to disable colors.\n";
 }
@@ -53,6 +59,12 @@ static void write_h(const std::string& path, const Homography3x3& h) {
         file << h.h[3*r] << ' ' << h.h[3*r+1] << ' ' << h.h[3*r+2] << '\n';
     check_stream(file, path);
 }
+static void write_gray(const std::string& path, const ImageGray& image) {
+    std::ofstream file(path, std::ios::binary);
+    file << "P5\n" << image.width << ' ' << image.height << "\n255\n";
+    file.write(reinterpret_cast<const char*>(image.data.data()), image.data.size());
+    check_stream(file, path);
+}
 static void write_keypoints(const std::string& path, const std::vector<Keypoint>& keypoints) {
     std::ofstream file(path);
     file << "index,x,y,response\n" << std::setprecision(9);
@@ -72,6 +84,8 @@ static void write_descriptors(const std::string& path, const std::vector<Descrip
 }
 static void write_trace(const std::string& dir, const PipelineTrace& trace) {
     const std::string base = dir + "/";
+    write_gray(base + "blurred_A.pgm", trace.blurredA);
+    write_gray(base + "blurred_B.pgm", trace.blurredB);
     write_keypoints(base + "keypoints_A.csv", trace.kptsA);
     write_keypoints(base + "keypoints_B.csv", trace.kptsB);
     write_descriptors(base + "descriptors_A.txt", trace.descA);
@@ -119,8 +133,7 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--help") { usage(argv[0]); return 0; }
         if (argc < 6) { usage(argv[0]); throw std::runtime_error("Missing required arguments"); }
-        int runs = 1, warmup = 0;
-        bool has_version = false;
+        int runs = 5, warmup = 0, version = -1;
         std::string h_path, csv_path, dump_dir;
         for (int i = 4; i < argc; ++i) {
             const std::string option = argv[i];
@@ -130,15 +143,18 @@ int main(int argc, char** argv) {
             if (++i >= argc) throw std::runtime_error("Missing value for " + option);
             const std::string value = argv[i];
             if (option == "--version") {
-                if (integer(value, 0) != 0) throw std::runtime_error("Only V0 is implemented");
-                has_version = true;
+                version = integer(value, 0);
+                if (version > 1) throw std::runtime_error("Supported versions are 0 and 1");
             } else if (option == "--runs") runs = integer(value, 1);
             else if (option == "--warmup") warmup = integer(value, 0);
             else if (option == "--save-h") h_path = value;
             else if (option == "--dump-dir") dump_dir = value;
             else csv_path = value;
         }
-        if (!has_version) throw std::runtime_error("--version 0 is required");
+        if (version < 0) throw std::runtime_error("--version 0 or 1 is required");
+#ifndef STITCH_CUDA
+        if (version == 1) throw std::runtime_error("V1 requires a CUDA build (make cuda or tools/build.py --cuda)");
+#endif
         std::string output = argv[3];
         auto dot = output.find_last_of('.');
         std::string extension = dot == std::string::npos ? "" : output.substr(dot);
@@ -154,21 +170,31 @@ int main(int argc, char** argv) {
             (csv_path == output || csv_path == h_path)))
             throw std::runtime_error("Output paths must be distinct");
         const ImageRGB a = load(argv[1]), b = load(argv[2]);
-        log_message(LogLevel::Process) << "V0: A=" << a.width << 'x' << a.height
+        log_message(LogLevel::Process) << "V" << version << ": A=" << a.width << 'x' << a.height
             << ", B=" << b.width << 'x' << b.height << ", runs=" << runs
             << ", warmup=" << warmup << '\n';
         if (runs < 5) log_message(LogLevel::Warn) << "Use --runs 5 or more for the report\n";
         ImageRGB panorama;
         Homography3x3 h;
+#ifdef STITCH_CUDA
+        std::unique_ptr<V1Pipeline> gpu(version == 1 ? new V1Pipeline() : nullptr);
+#endif
+        const auto run = [&](ImageRGB& result, StageTimings& time, Homography3x3* matrix, PipelineTrace* trace) {
+#ifdef STITCH_CUDA
+            if (gpu) return gpu->run_v1(a, b, result, time, matrix, trace);
+#endif
+            return run_v0(a, b, result, time, matrix, trace);
+        };
         std::vector<StageTimings> samples;
         for (int i = 0; i < warmup; ++i) {
             StageTimings ignored;
-            if (!run_v0(a, b, panorama, ignored, &h)) throw std::runtime_error("Warmup failed");
+            if (!run(panorama, ignored, &h, nullptr)) throw std::runtime_error("Warmup failed");
         }
         for (int i = 0; i < runs; ++i) {
             log_message(LogLevel::Process) << "Run " << i + 1 << '/' << runs << '\n';
             StageTimings time;
-            if (!run_v0(a, b, panorama, time, &h)) throw std::runtime_error("V0 pipeline failed");
+            if (!run(panorama, time, &h, nullptr))
+                throw std::runtime_error("V" + std::to_string(version) + " pipeline failed");
             samples.push_back(time);
         }
         if (!dump_dir.empty()) {
@@ -176,13 +202,14 @@ int main(int argc, char** argv) {
             PipelineTrace trace;
             StageTimings ignored;
             ImageRGB traced;
-            if (!run_v0(a, b, traced, ignored, nullptr, &trace))
+            if (!run(traced, ignored, nullptr, &trace))
                 throw std::runtime_error("Trace run failed");
             write_trace(dump_dir, trace);
         }
         std::cout << std::fixed << std::setprecision(6)
                   << "Stage                       Mean (ms)      Min (ms)\n";
-        for (int f = 0; f < 7; ++f) {
+        const int timing_count = version == 0 ? kCpuTimingFields : sizeof(names) / sizeof(names[0]);
+        for (int f = 0; f < timing_count; ++f) {
             double sum = 0, minimum = std::numeric_limits<double>::infinity();
             for (const auto& sample : samples) {
                 sum += sample.*fields[f]; minimum = std::min(minimum, sample.*fields[f]);
@@ -200,11 +227,11 @@ int main(int argc, char** argv) {
         if (!csv_path.empty()) {
             std::ofstream file(csv_path);
             file << "run";
-            for (auto name : names) file << ',' << name;
+            for (int f = 0; f < timing_count; ++f) file << ',' << names[f];
             file << '\n' << std::setprecision(17);
             for (size_t i = 0; i < samples.size(); ++i) {
                 file << i + 1;
-                for (auto field : fields) file << ',' << samples[i].*field;
+                for (int f = 0; f < timing_count; ++f) file << ',' << samples[i].*fields[f];
                 file << '\n';
             }
             check_stream(file, csv_path);

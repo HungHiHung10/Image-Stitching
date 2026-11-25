@@ -1,7 +1,11 @@
 #pragma once
 #include <cstdint>
 
+#ifdef STITCH_DEVICE_BRIEF_PATTERN
+static __constant__ int8_t kBriefPattern[256][4] = {
+#else
 static const int8_t kBriefPattern[256][4] = {
+#endif
     {7, 0, -3, 4},
     {0, 1, -9, 4},
     {1, -1, -1, 0},

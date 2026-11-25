@@ -70,7 +70,7 @@ private:
         out_ << '"';
     }
 
-    void write(const char* value) { write(std::string(value)); }
+    void write(const char*) = delete;
 
     void write(const std::vector<double>& values) {
         out_ << '[';
@@ -357,6 +357,45 @@ ChainResult run_chain(GpuBackend& backend, DeviceInputs& inputs, const ImageRGB&
     return result;
 }
 
+void check_error_paths() {
+    GpuBackend backend;
+    const GpuFeatures empty{nullptr, nullptr, 0};
+    if (backend.match(empty, empty, nullptr) != 0)
+        throw std::runtime_error("Empty descriptors must produce zero matches");
+
+    std::vector<Descriptor256> descriptors(4);
+    std::vector<Keypoint> points;
+    for (int i = 0; i < 4; ++i) {
+        descriptors[i].data[0] = 1u << i;
+        points.emplace_back(float(i), 0.0f);
+    }
+    DeviceBuffer<Keypoint> device_points;
+    DeviceBuffer<Descriptor256> device_desc;
+    device_points.upload(points, nullptr);
+    device_desc.upload(descriptors, nullptr);
+    GpuFeatures features{device_points.data(), device_desc.data(), 3};
+    Homography3x3 h;
+    int inliers = -1;
+    int matches = backend.match(features, features, nullptr);
+    if (matches != 3 || check_match_count(matches) ||
+        backend.estimate_homography(features, features, backend.matches(), matches, h, inliers, nullptr))
+        throw std::runtime_error("Three matches must fail homography estimation");
+
+    features.count = 4;
+    matches = backend.match(features, features, nullptr);
+    if (matches != 4 ||
+        backend.estimate_homography(features, features, backend.matches(), matches, h, inliers, nullptr))
+        throw std::runtime_error("Collinear keypoints must fail homography estimation");
+
+    Homography3x3 singular, oversized;
+    singular.h[4] = 0.0;
+    oversized.h[2] = cfg::kMaxCanvasSide;
+    if (check_canvas_bounds(singular, 64, 64, 64, 64) ||
+        check_canvas_bounds(oversized, 64, 64, 64, 64))
+        throw std::runtime_error("Singular H and oversized canvases must be rejected");
+    log_message(LogLevel::Success) << "Backend error cases passed\n";
+}
+
 int run(const Options& options) {
     const ImageRGB a = load_rgb(options.left), b = load_rgb(options.right);
     log_message(LogLevel::Process) << "Backend test: A=" << a.width << 'x' << a.height << ", B=" << b.width
@@ -497,6 +536,10 @@ int run(const Options& options) {
 int main(int argc, char** argv) {
     init_logging();
     try {
+        if (argc == 2 && std::string(argv[1]) == "--check-errors") {
+            check_error_paths();
+            return 0;
+        }
         return run(parse(argc, argv));
     } catch (const std::exception& error) {
         log_message(LogLevel::Error) << error.what() << '\n';

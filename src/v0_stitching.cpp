@@ -46,6 +46,10 @@ bool run_v0(const ImageRGB& imgA,
     ImageGray grayB = v0_rgb_to_gray(imgB);
     ImageGray blurB = v0_gaussian_blur(grayB);
     timings.stage1_preprocess_ms = stage_timer.stop();
+    if (trace) {
+        trace->blurredA = blurA;
+        trace->blurredB = blurB;
+    }
 
     // ------------------------------------------------------------------------
     // Stage 2: Keypoint Detection (FAST / Harris + NMS + Top-K)

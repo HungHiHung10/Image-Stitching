@@ -21,6 +21,12 @@ struct GpuModel {
     double h_inv[9];
 };
 
+struct GpuWarpSetup {
+    hd::CanvasLayout layout;
+    double h_inv[9];
+    bool invertible;
+};
+
 struct GpuExposureState {
     double gain[3];
     double bias[3];
@@ -77,6 +83,7 @@ private:
     DeviceBuffer<float> inlier_dst_;
 
     DeviceBuffer<double> partial_sums_;
+    DeviceBuffer<GpuWarpSetup> warp_setup_;
     DeviceBuffer<unsigned long long> partial_counts_;
     DeviceBuffer<GpuExposureState> exposure_;
     DeviceBuffer<float> seam_cost_;
