@@ -88,16 +88,16 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 
 ## Trạng thái Phần B (cập nhật 25/11/2026, nhánh `feat/v1-basic-cuda`)
 
-**Kết luận:** M1 (kernel stage 4–6) và chương trình kiểm tra độc lập B.3 đã viết xong và đạt mọi bước kiểm tra chạy được trên máy Mac: lint CUDA bằng clang (host và `sm_75`), giả lập kernel trên CPU so với V0, V0 sau refactor trùng từng byte với nhánh Phần A. **Chưa chạy trên GPU thật**: cần lượt Colab 1 bằng notebook `verify_partB/verify_partB.ipynb` (ngoài repo). Chưa làm M2 (`run_v1`), vì phần này cần frontend GPU của Phúc và CLI `--version 1` của Hưng.
+**Kết luận:** M1 (kernel stage 4–6) và chương trình kiểm tra độc lập B.3 đã xong và đạt lượt Colab 1 (Tesla T4, 25/11/2026). Trên 12 cặp thật và synthetic, backend GPU cho match, inlier, H, canvas, quyết định blend, `seam_x` và panorama trùng từng bit với V0, và compute-sanitizer không báo lỗi. Phần còn lại của M1 là các ca lỗi B.3. Chưa làm M2 (`run_v1`), vì phần này cần frontend GPU của Phúc và CLI `--version 1` của Hưng. Nhánh đã push và mở draft PR với base là `refactor/v0-baseline-lock`; khi PR Phần A được merge thì đổi base sang `main`.
 
 | Mục | File | Trạng thái |
 |---|---|---|
 | Quy tắc từng phần tử dùng chung CPU/GPU (matching, inlier, canvas, exposure, seam, blend) | `src/hd_backend.h` (mới), `src/hd_math.h` | Xong |
-| V0 gọi các hàm dùng chung, kết quả không đổi | `src/v0_backend.cpp` | Xong, trùng từng byte trên máy (5 cặp); chờ Colab (12 cặp + synthetic) |
+| V0 gọi các hàm dùng chung, kết quả không đổi | `src/v0_backend.cpp` | Xong, trùng từng byte với nhánh Phần A trên Colab (12 cặp + synthetic) |
 | Tách 3 bước kiểm tra khỏi `run_v0` để V1 dùng lại, log giữ nguyên | `src/v0_stitching.cpp`, `src/versions.h` | Xong, [Cần nhóm duyệt]: file của Hưng |
 | Buffer RAII tối thiểu | `src/device_buffer.cuh` (mới) | Xong; Hưng có thể gộp vào `gpu_buffers.cuh` |
-| Kernel stage 4–6 + lớp `GpuBackend` | `src/gpu_backend.cuh`, `src/gpu_backend.cu` (mới) | Xong, chờ GPU thật |
-| Kiểm tra độc lập B.3 | `src/tests/test_backend.cu` (mới) | Xong, chờ GPU thật |
+| Kernel stage 4–6 + lớp `GpuBackend` | `src/gpu_backend.cuh`, `src/gpu_backend.cu` (mới) | Xong, đạt lượt Colab 1 |
+| Kiểm tra độc lập B.3 | `src/tests/test_backend.cu` (mới) | Xong, đạt lượt Colab 1; còn các ca lỗi |
 | Build `make test-backend` (`--fmad=false -arch=sm_75`), bỏ binary khỏi Git | `src/Makefile`, `.gitignore` | Xong, [Cần nhóm duyệt]: file của Hưng |
 
 ### Mapping thread/block đã cài
@@ -120,6 +120,44 @@ Bộ kiểm tra nằm ngoài repo, trong thư mục `verify_partA/` cạnh repo.
 
 Host chỉ đọc về các số dùng để in log và rẽ nhánh như V0: số match, (iter, số inlier) của hypothesis tốt nhất, trạng thái refit, số inlier mỗi lượt, H, và quyết định exposure/seam. Canvas và H⁻¹ tính trên host bằng đúng hàm `hd::canvas_layout` và `hd::invert_h` mà V0 dùng.
 
+### Kết quả kiểm tra trên Colab, lượt 1 (25/11/2026)
+
+Môi trường: Tesla T4 (`sm_75`), nvcc 13.0, g++ 13.3, compute-sanitizer 2025.3.1. Bộ kiểm tra nằm ngoài repo: notebook `verify_partB/verify_partB.ipynb`, log và JSON lưu ở `verify_partB/results/round1_*`. Notebook build cùng lúc nhánh Phần A và nhánh này trong một phiên, chạy trên 12 cặp thật và synthetic. Cả 9 mục kết luận đều đạt.
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Build g++ V0 của nhánh Phần A và nhánh này | Qua, không cảnh báo |
+| `make test-backend` (`--fmad=false -arch=sm_75`), `tools/build.py`, `make cpu` | Qua; 1 cảnh báo nvcc #177: hàm `JsonWriter::write(const char*)` trong `test_backend.cu` không được dùng |
+| V0 của nhánh này so với nhánh Phần A, 12 cặp + synthetic | Trùng từng byte: log, H, panorama |
+| `test_backend`, 13 ca | 13/13 đạt mức nghiêm ngặt: match, inlier, H (từng bit), canvas, quyết định exposure/seam, `seam_x` và panorama trùng V0; gain/bias trùng; `overlap MAE` lệch tối đa 6,3e-12. Chạy nối liền 3 stage cũng trùng |
+| compute-sanitizer `memcheck`, `racecheck`, `initcheck`, `synccheck` trên `small_site4_challenging` (seam optimal) và `small_site2_outdoor` (exposure affine) | 0 lỗi, 0 hazard |
+| ptxas | 19 kernel, không spill. Nặng nhất là `hypothesis_kernel` (232 thanh ghi) và `refit_kernel` (180 thanh ghi), mỗi kernel 576 B stack |
+
+Thời gian (ms). V0 là 1 lần chạy của `run_v0`. V1 là trung bình 5 lần sau 1 lần warmup, đo bằng `GpuTimer`, buffer được giữ lại giữa các lần chạy. H2D gồm 2 ảnh RGB, keypoint và descriptor. D2H là chép panorama về bộ nhớ pageable.
+
+| Cặp | Canvas | V0 s4 / s5 / s6 | V1 H2D | V1 s4 | V1 s5 | V1 s6 | V1 D2H | V1 tổng |
+|---|---|---|---|---|---|---|---|---|
+| small_site1_indoor | 2405×1298 | 22.0 / 3.0 / 107.9 | 1.2 | 0.36 | 2.25 | 4.2 | 2.0 | 10.0 |
+| small_site2_outdoor | 1636×858 | 38.6 / 7.3 / 87.7 | 1.3 | 0.43 | 3.77 | 2.3 | 0.9 | 8.7 |
+| small_site3_custom | 2079×1068 | 3.6 / 2.0 / 93.0 | 1.2 | 0.14 | 2.59 | 3.1 | 1.2 | 8.3 |
+| small_site4_challenging | 2314×1238 | 1596.8 / 12.9 / 162.3 | 1.2 | 1.80 | 3.88 | 12.2 | 1.7 | 20.9 |
+| medium_site1_indoor | 3559×1815 | 65.8 / 3.5 / 230.3 | 2.7 | 0.48 | 1.79 | 7.7 | 3.9 | 16.6 |
+| medium_site2_outdoor | 2463×1295 | 140.4 / 10.8 / 188.6 | 2.7 | 0.51 | 3.14 | 3.2 | 1.7 | 11.4 |
+| medium_site3_custom | 3062×1546 | 14.9 / 2.6 / 211.3 | 2.7 | 0.34 | 2.66 | 8.1 | 2.9 | 16.8 |
+| medium_site4_challenging | 3475×1861 | 1587.9 / 9.1 / 361.1 | 2.8 | 1.81 | 3.08 | 26.4 | 3.9 | 38.0 |
+| large_site1_indoor | 7120×3841 | 277.1 / 3.3 / 1016.0 | 12.0 | 1.49 | 2.36 | 36.2 | 45.3 | 97.4 |
+| large_site2_outdoor | 4884×2568 | 1081.2 / 21.9 / 733.1 | 10.9 | 2.32 | 8.00 | 20.1 | 12.7 | 54.1 |
+| large_site3_custom | 6220×3204 | 138.3 / 4.2 / 1118.0 | 11.1 | 0.85 | 2.43 | 26.8 | 25.6 | 66.9 |
+| large_site4_challenging | 7055×3666 | 1756.5 / 8.5 / 2086.7 | 11.6 | 1.38 | 1.64 | 72.4 | 17.6 | 104.6 |
+| synthetic | 11210×3916 | 1597.8 / 41.4 / 2000.5 | 36.7 | 1.70 | 14.52 | 34.7 | 76.1 | 163.8 |
+
+Nhận xét để chọn hướng tối ưu cho V2/V3:
+- Stage 6 chiếm phần lớn thời gian kernel, nhất là ở các cặp có seam optimal (`large_site4_challenging` 72 ms).
+- Ở canvas lớn, D2H chiếm tới gần một nửa tổng thời gian (`large_site1_indoor` 45/97 ms). Tốc độ chép pageable chỉ 1,7–5,5 GB/s và chậm nhất ở canvas lớn, nên pinned memory là hướng đáng thử.
+- Stage 5 gần như không đổi theo kích thước ảnh (1,6–14,5 ms), vì chi phí phụ thuộc số match chứ không phụ thuộc số pixel.
+
+Các số này chỉ để định hướng. Bảng speedup Final phải đo lại bằng `run_v1` và `tools/benchmark.py` trong cùng một phiên với V0.
+
 ### Kết quả kiểm tra trên máy (25/11/2026)
 
 Bộ kiểm tra nằm ngoài repo, trong `verify_partB/local/run_local.py`. Không có GPU NVIDIA, nên kernel được chạy bằng giả lập: mỗi block chạy bằng `blockDim` thread hệ điều hành, `__syncthreads` là barrier thật (dừng có báo lỗi nếu các thread của một block không cùng tới barrier), bộ nhớ cấp phát được điền rác `0xCD`. Build bằng `-ffp-contract=off` để giống ngữ nghĩa `--fmad=false`. Dữ liệu là 5 cặp tự sinh từ `synthetic_GT.HEIC`, phủ đủ các nhánh: dịch thuần, warp phối cảnh kèm lệch sáng (exposure affine), thị sai nhẹ, vật che khuất (seam optimal, MAE 27,7), ảnh nhỏ xoay 3°.
@@ -135,7 +173,7 @@ Bộ kiểm tra nằm ngoài repo, trong `verify_partB/local/run_local.py`. Khô
 ### Khác so với kế hoạch
 
 - **Refit (B.0 #7, B.2):** dùng 1 thread gọi `hd::dlt_fit` theo thứ tự inlier của V0 thay cho reduction tâm/ATA. Có tối đa 1500 inlier nên chi phí nhỏ, đổi lại H trùng từng bit với V0, tránh lệch pixel ở mép canvas (phát hiện 4 ở Phần A). Reduction song song cho refit có thể là một hướng tối ưu cho V2/V3 nếu đo thấy refit đáng kể.
-- **Exposure:** reduction 2 bước có thứ tự cố định nên kết quả xác định, nhưng thứ tự cộng khác V0. Tổng có thể lệch ở bit cuối; trên 5 cặp thử, chỉ `overlap MAE` lệch cỡ 1e-14 và pixel không đổi. Tiêu chí pixel ±1 ở mục 6 vẫn cần cho trường hợp này.
+- **Exposure:** reduction 2 bước có thứ tự cố định nên kết quả xác định, nhưng thứ tự cộng khác V0. Tổng có thể lệch ở bit cuối; trên 5 cặp thử ở máy, chỉ `overlap MAE` lệch cỡ 1e-14; trên 13 ca ở Colab, `overlap MAE` lệch tối đa 6,3e-12, gain/bias và pixel không đổi. Tiêu chí pixel ±1 ở mục 6 vẫn cần cho trường hợp này.
 - **Canvas và H⁻¹:** tính trên host bằng hàm dùng chung (4 phép chiếu góc và 1 nghịch đảo 3×3), không dùng kernel `canvas_bounds`. H phải về host để kiểm tra canvas như V0, nên làm thêm 1 kernel cũng không bớt được lần chép nào.
 - **Seam DP:** chọn phương án 1 block lặp theo hàng (đã ghi là hợp lệ ở B.2), host không phải điều phối từng hàng.
 - **Giao diện:** `GpuFeatures.count` là số trên host thay vì con trỏ device, vì V1 vẫn phải in `Keypoints: A=..., B=...` nên số keypoint luôn phải về host. Mọi buffer làm việc thuộc `GpuBackend` và được giữ lại giữa các lần chạy (đo ở trạng thái ổn định); cấp phát chỉ xảy ra ở lần đầu.
@@ -143,8 +181,10 @@ Bộ kiểm tra nằm ngoài repo, trong `verify_partB/local/run_local.py`. Khô
 
 ### Việc tiếp theo
 
-- [ ] Lượt Colab 1: chạy `verify_partB/verify_partB.ipynb` (T4), gửi lại file đã chạy.
+- [x] Lượt Colab 1: chạy `verify_partB/verify_partB.ipynb` (T4). Đạt 9/9 mục (25/11/2026).
 - [ ] Ca lỗi B.3 (assignment 9.3): ít hơn 4 match, descriptor rỗng, H suy biến, canvas quá lớn.
+- [ ] Sửa cảnh báo nvcc #177: đổi `JsonWriter::write(const char*)` thành `= delete`. Nếu xóa hẳn hàm này, một chuỗi literal truyền vào `field()` sẽ âm thầm gọi `write(bool)`. Kiểm lại trên Colab rằng cảnh báo đã hết. Sửa luôn bảng ptxas của bộ kiểm tra (ngoài repo) đang in thiếu tên kernel.
+- [ ] Cả nhóm chốt mục 6: tolerance V0/V1 và chính sách cấp phát trong hay ngoài vùng đo.
 - [ ] Chốt với Hưng: `--version 1`, các trường timing H2D/D2H trong `StageTimings`, gộp `device_buffer.cuh` vào `gpu_buffers.cuh`, target build cho V1.
 - [ ] Chốt với Phúc: frontend GPU trả `Keypoint*`, `Descriptor256*` trên device và số keypoint trên host, theo thứ tự A4; bảng BRIEF cần bản `__constant__`.
 - [ ] M2: `run_v1` trong `src/gpu_pipeline.cu`, dùng `GpuBackend` và các hàm `check_*`.
@@ -498,7 +538,7 @@ File mới của TV1: `src/gpu_backend.cuh` (giao diện), `src/gpu_backend.cu` 
 | `compact_ordered` | Prefix sum trên cờ (1 block đủ cho ≤ 1500 phần tử); ghi `d_matches` theo `queryIdx` tăng dần và `d_match_count` |
 
 - Không lưu ma trận khoảng cách đầy đủ.
-- Đọc số keypoint từ con trỏ device để khỏi đồng bộ.
+- Số keypoint là `int` trên host (đã đổi so với bản nháp dùng con trỏ device, xem mục 5).
 - Chỉ copy `match_count` về host để dừng khi có ít hơn 4 match. Ghi rõ đây là bước điều phối.
 
 **Stage 5 — RANSAC + refinement**
@@ -554,16 +594,16 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
   2. upload keypoint và descriptor của V0 lên GPU;
   3. chạy stage 4–6 trên GPU;
   4. so với `PipelineTrace` của V0.
-- [x] Các tiêu chí so sánh (đã cài trong `test_backend`; chờ chạy trên GPU thật):
+- [x] Các tiêu chí so sánh (đã cài trong `test_backend`; đạt 13/13 ca ở lượt Colab 1):
   - Danh sách match giống hệt: index, distance, thứ tự.
   - Tập inlier giống hệt.
   - H: sai số chiếu trên lưới điểm so với H của V0 (mean và max px).
   - Canvas cùng kích thước và offset.
   - Cùng quyết định exposure và seam; gain/bias; `seam_x` giống hệt.
   - Pixel: max |diff| và % pixel lệch trên vùng hợp lệ.
-- [ ] Thử các ca lỗi (assignment 9.3): ít hơn 4 match, descriptor rỗng, H suy biến, canvas quá lớn, ảnh large 3840×2160.
-- [ ] Chạy `compute-sanitizer --tool memcheck` và `--tool racecheck` (đã có trong notebook lượt 1, thêm `initcheck`, `synccheck`).
-- [ ] Synthetic: sai số chiếu của V1 dưới 1 px.
+- [ ] Thử các ca lỗi (assignment 9.3): ít hơn 4 match, descriptor rỗng, H suy biến, canvas quá lớn. Ảnh large 3840×2160 đã chạy đạt ở lượt Colab 1.
+- [x] Chạy `compute-sanitizer` với `memcheck`, `racecheck`, `initcheck`, `synccheck`: lượt Colab 1 không báo lỗi trên `small_site4_challenging` và `small_site2_outdoor`.
+- [x] Synthetic: H của V1 trùng từng bit với V0, nên sai số chiếu bằng của V0 (< 1e-10 px).
 
 ## B.4 M2 — Tích hợp và nghiệm thu V1 (TV1 chủ trì)
 
@@ -622,16 +662,17 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
 
 **Với Phúc (frontend → backend):**
 - `Keypoint*` và `Descriptor256*` nằm trên device.
-- Số phần tử hợp lệ nằm trong `int*` trên device; dung lượng tối đa `cfg::kMaxKeypoints`.
+- Số keypoint hợp lệ là `int` trên host, dung lượng tối đa `cfg::kMaxKeypoints`. Bản nháp dùng `int*` trên device, nhưng V1 phải in dòng `Keypoints: A=..., B=...` nên số này luôn phải về host. Backend nhận qua `GpuFeatures` trong `src/gpu_backend.cuh`.
+- Bảng BRIEF cần bản `__constant__` sinh từ `src/brief_pattern.h`.
 - Thứ tự keypoint theo A4.
 - Descriptor 32 byte: bit `b` nằm ở byte `b/8`, vị trí `b%8`, như [v0_frontend.cpp:223](src/v0_frontend.cpp#L223).
-- Thống nhất stream dùng và ai sở hữu buffer.
+- Stream và buffer (đề xuất theo bản đã cài): mọi hàm của `GpuBackend` nhận `cudaStream_t`; backend sở hữu buffer làm việc của stage 4–6; frontend sở hữu buffer ảnh, keypoint và descriptor, và phải giữ chúng tới hết stage 6.
 
 **Với Hưng:**
 - `--version 1` gọi `run_v1`; `--runs` mặc định 5.
 - Các trường timing mới (H2D, D2H, tổng kernel, end-to-end) trong `StageTimings` và CSV.
-- `gpu_buffers.cuh` (RAII).
-- Cờ build: `-arch`, `--fmad=false`; danh sách nguồn `.cu`.
+- `gpu_buffers.cuh` (RAII). Hiện đã có `src/device_buffer.cuh` tối thiểu; Hưng gộp hoặc thay.
+- Cờ build: `-arch`, `--fmad=false`; danh sách nguồn `.cu`. Target `test-backend` trong `src/Makefile` có thể dùng làm mẫu.
 - `--dump-dir` và định dạng file dump để `verify_versions.py` dùng (A5).
 
 ## 6. Quyết định cần nhóm chốt trước khi benchmark
