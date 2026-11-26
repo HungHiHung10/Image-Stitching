@@ -368,21 +368,22 @@ __global__ void exposure_decide_kernel(const double* partial_sums, const unsigne
     }
 }
 
-__global__ void seam_cost_kernel(WarpGeometry g, BlendParams p, float* cost) {
-    const int px = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void seam_cost_kernel(WarpGeometry g, BlendParams p, float* cost, int first_x, int width) {
+    const int column = blockIdx.x * blockDim.x + threadIdx.x;
     const int py = blockIdx.y * blockDim.y + threadIdx.y;
-    if (px >= g.width || py >= g.height) return;
+    if (column >= width || py >= g.height) return;
+    const int px = first_x + column;
     float a[3], b[3];
     float value = -1.0f;
     if (hd::overlap_samples(g.a, g.b, g.h_inv.m, px - g.offset_x, py - g.offset_y, a, b)) {
         for (int c = 0; c < 3; ++c) b[c] = static_cast<float>(hd::exposure_apply(p.gain[c], p.bias[c], b[c]));
         value = hd::abs_diff_sum(a, b);
     }
-    cost[static_cast<size_t>(py) * g.width + px] = value;
+    cost[static_cast<size_t>(py) * width + column] = value;
 }
 
 __global__ void seam_dp_kernel(const float* cost, int width, int height, double* row_a, double* row_b,
-                               int8_t* parent, int* seam_x) {
+                               int8_t* parent, int* seam_x, int first_x) {
     __shared__ double min_values[kSeamThreads];
     __shared__ int min_indices[kSeamThreads];
     const int tid = threadIdx.x;
@@ -446,9 +447,15 @@ __global__ void seam_dp_kernel(const float* cost, int width, int height, double*
         __syncthreads();
     }
     if (tid == 0 && first_y >= 0) {
+        // V1 chooses canvas column zero when all terminal costs are infinite.
+        // If that column was excluded its parents were all zero as well.
+        if (first_x > 0 && !hd::is_finite(min_values[0])) {
+            for (int py = last_y; py >= first_y; --py) seam_x[py] = 0;
+            return;
+        }
         int x = min_indices[0];
         for (int py = last_y; py >= first_y; --py) {
-            seam_x[py] = x;
+            seam_x[py] = first_x + x;
             x += parent[static_cast<size_t>(py) * width + x];
             x = hd::seam_clamp_x(x, width);
         }
@@ -584,7 +591,7 @@ bool GpuBackend::estimate_homography(const GpuFeatures& a, const GpuFeatures& b,
 }
 
 void GpuBackend::warp_and_blend(const GpuImage& a, const GpuImage& b, const Homography3x3& h,
-                                BlendInfo* info, cudaStream_t stream) {
+                                BlendInfo* info, cudaStream_t stream, bool compact_seam) {
     if (info) *info = BlendInfo{};
     Mat3 transform;
     for (int i = 0; i < 9; ++i) transform.m[i] = h.h[i];
@@ -659,16 +666,23 @@ void GpuBackend::warp_and_blend(const GpuImage& a, const GpuImage& b, const Homo
     const dim3 tile(kTile, kTile);
     const dim3 grid(blocks_for(width, kTile), blocks_for(height, kTile));
     if (state.use_seam) {
-        seam_cost_.reserve(pixels);
-        seam_parent_.reserve(pixels);
-        seam_rows_.reserve(2 * static_cast<size_t>(width));
-        seam_parent_.fill_bytes(0, pixels, stream);
+        // overlap_samples requires 0 <= px - offset_x < a.width - 1.
+        // Round outward so fractional offsets always retain every valid column.
+        const int first_x = compact_seam ? static_cast<int>(std::floor(g.offset_x)) : 0;
+        const int end_x = compact_seam ? hd::min_of(width, static_cast<int>(std::ceil(g.offset_x)) + a.width) : width;
+        const int seam_width = end_x - first_x;
+        const size_t seam_pixels = static_cast<size_t>(seam_width) * height;
+        const dim3 seam_grid(blocks_for(seam_width, kTile), grid.y);
+        seam_cost_.reserve(seam_pixels);
+        seam_parent_.reserve(seam_pixels);
+        seam_rows_.reserve(2 * static_cast<size_t>(seam_width));
+        seam_parent_.fill_bytes(0, seam_pixels, stream);
         seam_x_.fill_bytes(0xFF, height, stream);
-        seam_cost_kernel<<<grid, tile, 0, stream>>>(g, params, seam_cost_.data());
+        seam_cost_kernel<<<seam_grid, tile, 0, stream>>>(g, params, seam_cost_.data(), first_x, seam_width);
         check_launch();
-        seam_dp_kernel<<<1, kSeamThreads, 0, stream>>>(seam_cost_.data(), width, height, seam_rows_.data(),
-                                                       seam_rows_.data() + width, seam_parent_.data(),
-                                                       seam_x_.data());
+        seam_dp_kernel<<<1, kSeamThreads, 0, stream>>>(seam_cost_.data(), seam_width, height, seam_rows_.data(),
+                                                       seam_rows_.data() + seam_width, seam_parent_.data(),
+                                                       seam_x_.data(), first_x);
         check_launch();
     }
     warp_blend_kernel<<<grid, tile, 0, stream>>>(g, params, seam_x_.data(), state.use_seam, panorama_.data());

@@ -45,7 +45,7 @@ public:
     bool estimate_homography(const GpuFeatures& a, const GpuFeatures& b, const Match* matches,
                              int match_count, Homography3x3& h, int& inlier_count, cudaStream_t stream);
     void warp_and_blend(const GpuImage& a, const GpuImage& b, const Homography3x3& h,
-                        BlendInfo* info, cudaStream_t stream);
+                        BlendInfo* info, cudaStream_t stream, bool compact_seam = false);
 
     std::vector<Match> download_matches(int count, cudaStream_t stream) const;
     std::vector<int> download_inliers(int count, cudaStream_t stream) const;

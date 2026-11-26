@@ -25,9 +25,9 @@ static const double StageTimings::* fields[] = {
     &StageTimings::h2d_ms, &StageTimings::d2h_ms, &StageTimings::gpu_stage_sum_ms};
 static constexpr int kCpuTimingFields = 7;
 static void usage(const char* name) {
-    std::cout << "Usage: " << name << " <left> <right> <output.png|jpg> --version 0|1\n"
+    std::cout << "Usage: " << name << " <left> <right> <output.png|jpg> --version 0|1|2\n"
         "  [--runs N] [--warmup N] [--save-h FILE] [--timings-csv FILE] [--dump-dir DIR]\n"
-        "V1 requires a CUDA build. Runs default to 5; warmup defaults to 0.\n"
+        "V1 and V2 require a CUDA build. Runs default to 5; warmup defaults to 0.\n"
         "--dump-dir writes blurred images, keypoints, descriptors, matches, inliers, H and blend data\n"
         "  from one extra untimed run; DIR must exist.\n"
         "H maps right (B) to left (A). Set NO_COLOR to disable colors.\n";
@@ -144,16 +144,16 @@ int main(int argc, char** argv) {
             const std::string value = argv[i];
             if (option == "--version") {
                 version = integer(value, 0);
-                if (version > 1) throw std::runtime_error("Supported versions are 0 and 1");
+                if (version > 2) throw std::runtime_error("Supported versions are 0, 1 and 2");
             } else if (option == "--runs") runs = integer(value, 1);
             else if (option == "--warmup") warmup = integer(value, 0);
             else if (option == "--save-h") h_path = value;
             else if (option == "--dump-dir") dump_dir = value;
             else csv_path = value;
         }
-        if (version < 0) throw std::runtime_error("--version 0 or 1 is required");
+        if (version < 0) throw std::runtime_error("--version 0, 1 or 2 is required");
 #ifndef STITCH_CUDA
-        if (version == 1) throw std::runtime_error("V1 requires a CUDA build (make cuda or tools/build.py --cuda)");
+        if (version > 0) throw std::runtime_error("GPU versions require a CUDA build (make cuda or tools/build.py --cuda)");
 #endif
         std::string output = argv[3];
         auto dot = output.find_last_of('.');
@@ -177,11 +177,11 @@ int main(int argc, char** argv) {
         ImageRGB panorama;
         Homography3x3 h;
 #ifdef STITCH_CUDA
-        std::unique_ptr<V1Pipeline> gpu(version == 1 ? new V1Pipeline() : nullptr);
+        std::unique_ptr<V1Pipeline> gpu(version > 0 ? new V1Pipeline() : nullptr);
 #endif
         const auto run = [&](ImageRGB& result, StageTimings& time, Homography3x3* matrix, PipelineTrace* trace) {
 #ifdef STITCH_CUDA
-            if (gpu) return gpu->run_v1(a, b, result, time, matrix, trace);
+            if (gpu) return gpu->run_v1(a, b, result, time, matrix, trace, version == 2);
 #endif
             return run_v0(a, b, result, time, matrix, trace);
         };

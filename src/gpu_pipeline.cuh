@@ -4,7 +4,8 @@
 class V1Pipeline {
 public:
     bool run_v1(const ImageRGB& imgA, const ImageRGB& imgB, ImageRGB& panorama,
-                StageTimings& timings, Homography3x3* outH = nullptr, PipelineTrace* trace = nullptr);
+                StageTimings& timings, Homography3x3* outH = nullptr, PipelineTrace* trace = nullptr,
+                bool compact_seam = false);
 
 private:
     struct Stream {

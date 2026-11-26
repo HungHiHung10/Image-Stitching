@@ -63,6 +63,13 @@ kernel. Buffer GPU tăng dung lượng khi cần và được dùng lại sau wa
 stream và timer, đọc/ghi file và lần chạy thêm của `--dump-dir` nằm ngoài số đo
 benchmark.
 
+## V2 của Vũ Trần Phúc
+
+[Notebook V2 trên Colab](Group22_V2_Colab.ipynb) chứa phần báo cáo, đối chiếu
+V2 với V0 và V1, cùng benchmark 12 cấu hình ảnh thật và cặp synthetic.
+Với `--version 2`, GPU tính bảng đường nối trên các cột có thể thuộc ảnh A.
+Notebook lưu kết quả từng cặp, thời gian stage 6 và thời gian toàn pipeline.
+
 ## Dữ liệu và kết quả
 
 - 8 ảnh raw đặt phẳng theo mẫu `dataset/raw/<category>_<left|right>.<ext>`; category là `indoor`, `outdoor`, `custom` hoặc `challenging`.

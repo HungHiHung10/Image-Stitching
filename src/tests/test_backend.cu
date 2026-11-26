@@ -396,6 +396,31 @@ void check_error_paths() {
     log_message(LogLevel::Success) << "Backend error cases passed\n";
 }
 
+// A flat overlap gives equal path costs. Fractional translations exercise
+// both clipping directions and the conversion back to canvas coordinates.
+void check_compact_seam() {
+    constexpr int width = 129, height = 97;
+    std::vector<uint8_t> dark(width * height * 3, 0), bright(dark.size(), 255);
+    DeviceBuffer<uint8_t> a, b;
+    a.upload(dark, nullptr);
+    b.upload(bright, nullptr);
+    GpuImage left{a.data(), width, height}, right{b.data(), width, height};
+    GpuBackend backend;
+    for (double dx : {-31.5, 0.0, 31.5}) {
+        Homography3x3 h;
+        h.h[2] = dx;
+        BlendInfo full, compact;
+        ImageRGB expected, actual;
+        backend.warp_and_blend(left, right, h, &full, nullptr);
+        backend.download_panorama(expected, nullptr);
+        backend.warp_and_blend(left, right, h, &compact, nullptr, true);
+        backend.download_panorama(actual, nullptr);
+        if (!full.seam_used || !blend_decisions_equal(full, compact) ||
+            full.seam_x != compact.seam_x || expected.data != actual.data)
+            throw std::runtime_error("Compact seam differs at dx=" + std::to_string(dx));
+    }
+}
+
 int run(const Options& options) {
     const ImageRGB a = load_rgb(options.left), b = load_rgb(options.right);
     log_message(LogLevel::Process) << "Backend test: A=" << a.width << 'x' << a.height << ", B=" << b.width
@@ -538,6 +563,10 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--check-errors") {
             check_error_paths();
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--check-compact-seam") {
+            check_compact_seam();
             return 0;
         }
         return run(parse(argc, argv));

@@ -20,7 +20,7 @@ STAGES = ['preprocess_ms', 'keypoint_ms', 'descriptor_ms', 'matching_ms', 'ransa
 
 def timing_metrics(version):
     names = STAGES + ['total_pipeline_ms']
-    if version == 1:
+    if version in (1, 2):
         names += ['h2d_ms', 'd2h_ms', 'gpu_stage_sum_ms']
     return names
 
@@ -83,7 +83,9 @@ def run(binary, left, right, output, runs, warmup, prefix, version=0):
     blend_rows = re.findall(r'Blend: exposure=(\w+), overlap MAE=([\d.]+), seam=(\w+)', result.stdout)
     blend = (dict(exposure=blend_rows[-1][0], overlap_mae=float(blend_rows[-1][1]),
                   seam=blend_rows[-1][2]) if blend_rows else None)
-    return dict(success=True, runs=runs, warmup=warmup, command=command, blend=blend,
+    keypoints = re.findall(r'Keypoints: A=(\d+), B=(\d+)', result.stdout)
+    counts = list(map(int, keypoints[-1])) if keypoints else None
+    return dict(success=True, runs=runs, warmup=warmup, command=command, blend=blend, descriptor_counts=counts,
         mean={k: float(np.mean([r[k] for r in samples])) for k in metrics},
         min={k: float(min(r[k] for r in samples)) for k in metrics})
 
@@ -173,7 +175,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--runs', type=int, default=5)
     parser.add_argument('--warmup', type=int, default=1)
-    parser.add_argument('--version', type=int, choices=[0, 1], default=0)
+    parser.add_argument('--version', type=int, choices=[0, 1, 2], default=0)
     args = parser.parse_args()
     report = benchmark(runs=args.runs, warmup=args.warmup, version=args.version)
     sys.exit(0 if all(r['success'] for r in report['results']) and report['correctness'].get('passed') else 1)

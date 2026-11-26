@@ -40,6 +40,7 @@ dataset/backup/
 outputs_v0/*
 !outputs_v0/.gitkeep
 outputs_v1/
+outputs_v2/
 
 # Other generated files
 *.png

@@ -632,11 +632,20 @@ bool gpu_warp_blend(const uint8_t* d_rgbA, int wA, int hA,
 
 ## B.5 M3 / M4 — Review
 
-- [ ] **V2 (Phúc, tiled matching):**
-  - popcount, top-2 và cách chọn khi bằng nhau giống V1;
-  - thứ tự match đầu ra giữ nguyên;
-  - tile cuối thiếu phần tử vẫn đi qua barrier hợp lệ;
-  - danh sách match của V2 trùng V1.
+### Quyết định V2 của Vũ Trần Phúc
+
+Output T4 trong `Group22_V0_V1_Colab.ipynb` ghi nhận matching và warp/blend
+trung bình lần lượt 0,786 và 10,362 ms ở medium, 1,084 và 32,760 ms ở large.
+Theo điều kiện chọn tại assignment mục 6.1, V2 tập trung vào stage 6. V1
+duyệt toàn chiều rộng canvas khi tìm seam dù chi phí chỉ hợp lệ bên trong
+ảnh A. V2 giới hạn các cột của bảng chi phí, bảng hướng và hai hàng quy
+hoạch động vào miền có thể lấy mẫu A. Các ca feather là nhóm đối chứng.
+Đo lại V0/V1/V2 trong cùng phiên GPU trước khi kết luận về speedup.
+
+- [ ] **V2 (Phúc, thu hẹp miền tìm seam):**
+  - so match, H, toàn bộ seam và panorama với V1;
+  - kiểm tra canvas có offset lẻ ở cả hai chiều dịch và nhiều đường đồng chi phí;
+  - so stage 6 và end-to-end riêng cho các ca seam và feather trên Colab.
 - [ ] **V3 (Hưng, streams):**
   - matching chờ đúng event của A và B;
   - buffer/counter của A và B tách riêng;

@@ -19,9 +19,9 @@ BLEND_FIELDS = ('canvas_w', 'canvas_h', 'offset_x', 'offset_y', 'exposure_applie
 ENV = {**os.environ, 'NO_COLOR': '1'}
 
 
-def compare_case(binary, left, right, output, ground_truth=None):
-    ref, actual = output / 'v0', output / 'v1'
-    for version, folder in enumerate((ref, actual)):
+def compare_case(binary, left, right, output, ground_truth=None, reference=0, candidate=1):
+    ref, actual = output / f'v{reference}', output / f'v{candidate}'
+    for version, folder in ((reference, ref), (candidate, actual)):
         folder.mkdir(parents=True)
         run = subprocess.run([str(binary), str(left), str(right), str(folder / 'panorama.png'),
                               '--version', str(version), '--runs', '1', '--dump-dir', str(folder)],
@@ -59,10 +59,13 @@ def compare_case(binary, left, right, output, ground_truth=None):
         mean, peak = projection_error(read_h(ground_truth), homography, w, h)
         result.update(ground_truth_mean_px=mean, ground_truth_max_px=peak)
         result['passed'] &= mean <= 1.0
+    if reference == 1 and candidate == 2:
+        result['passed'] &= pixel_max == 0 and (ref / 'H.txt').read_bytes() == (actual / 'H.txt').read_bytes()
+    result['seam_used'] = b_blend['seam_used']
     return result
 
 
-def verify(binary):
+def verify(binary, reference=0, candidate=1):
     cases = []
     for resolution in ('small', 'medium', 'large'):
         folder = ROOT / 'dataset/prepared' / resolution
@@ -75,7 +78,7 @@ def verify(binary):
     results = {}
     for label, left, right, ground_truth in cases:
         with tempfile.TemporaryDirectory(prefix='stitch-verify-') as tmp:
-            results[label] = compare_case(binary, left, right, Path(tmp), ground_truth)
+            results[label] = compare_case(binary, left, right, Path(tmp), ground_truth, reference, candidate)
         print(f'{label}: {json.dumps(results[label], ensure_ascii=False)}', flush=True)
 
     with tempfile.TemporaryDirectory(prefix='stitch-empty-') as tmp:
@@ -83,7 +86,7 @@ def verify(binary):
         blank, panorama = folder / 'blank.png', folder / 'panorama.png'
         Image.new('RGB', (64, 64)).save(blank)
         run = subprocess.run([str(binary), str(blank), str(blank), str(panorama),
-                              '--version', '1', '--runs', '1'], env=ENV, capture_output=True, text=True)
+                              '--version', str(candidate), '--runs', '1'], env=ENV, capture_output=True, text=True)
         results['empty_descriptors'] = {
             'passed': (run.returncode != 0 and 'Insufficient feature matches: 0' in run.stderr
                        and not panorama.exists()),
@@ -97,8 +100,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, default=ROOT / ('stitch.exe' if os.name == 'nt' else 'stitch'))
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--reference', type=int, choices=(0, 1), default=0)
+    parser.add_argument('--candidate', type=int, choices=(1, 2), default=1)
     args = parser.parse_args()
-    results = verify(args.binary.resolve())
+    if args.reference >= args.candidate:
+        parser.error('candidate must be newer than reference')
+    results = verify(args.binary.resolve(), args.reference, args.candidate)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(results, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')

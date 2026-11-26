@@ -3,7 +3,8 @@
 #include <limits>
 
 bool V1Pipeline::run_v1(const ImageRGB& imgA, const ImageRGB& imgB, ImageRGB& panorama,
-                        StageTimings& timings, Homography3x3* outH, PipelineTrace* trace) {
+                        StageTimings& timings, Homography3x3* outH, PipelineTrace* trace,
+                        bool compact_seam) {
     timings = StageTimings{};
     if (trace) *trace = PipelineTrace{};
     panorama.width = panorama.height = 0;
@@ -61,7 +62,7 @@ bool V1Pipeline::run_v1(const ImageRGB& imgA, const ImageRGB& imgB, ImageRGB& pa
     if (!check_canvas_bounds(h, a_.width, a_.height, b_.width, b_.height)) return false;
 
     blend_.start(stream);
-    backend_.warp_and_blend(a_.image(), b_.image(), h, trace ? &trace->blend : nullptr, stream);
+    backend_.warp_and_blend(a_.image(), b_.image(), h, trace ? &trace->blend : nullptr, stream, compact_seam);
     blend_.stop(stream);
     d2h_.start(stream);
     backend_.download_panorama(panorama, stream);
